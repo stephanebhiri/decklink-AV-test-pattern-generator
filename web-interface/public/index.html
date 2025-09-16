@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACTUA Broadcast Generator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 ACTUA Broadcast Generator</h1>
+            <p>Générateur de mires professionnel pour diffusion SDI</p>
+        </header>
+
+        <div class="controls-grid">
+            <!-- Background Section -->
+            <section class="control-section">
+                <h3>🎨 Fond</h3>
+                <div class="control-group">
+                    <label for="background">Type de fond :</label>
+                    <select id="background">
+                        <option value="blue">Fond Bleu</option>
+                        <option value="black">Fond Noir</option>
+                        <option value="white">Fond Blanc</option>
+                        <option value="bars">Mire Barres</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Text Section -->
+            <section class="control-section">
+                <h3>📝 Texte</h3>
+                <div class="control-group">
+                    <label for="text">Texte à afficher :</label>
+                    <textarea id="text" rows="2" placeholder="ACTUA PARIS&#10;Ligne 2 (optionnelle)">ACTUA PARIS</textarea>
+                </div>
+                <div class="control-group">
+                    <label for="textPosition">Position du texte :</label>
+                    <select id="textPosition">
+                        <option value="center">⊙ Centre</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="fontSize">Taille police :</label>
+                    <input type="range" id="fontSize" min="20" max="120" value="80">
+                    <span id="fontSizeValue">80px</span>
+                </div>
+                <div class="control-group">
+                    <label for="textColor">Couleur texte :</label>
+                    <select id="textColor">
+                        <option value="white">Blanc</option>
+                        <option value="black">Noir</option>
+                        <option value="red">Rouge</option>
+                        <option value="yellow">Jaune</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Logo Section -->
+            <section class="control-section">
+                <h3>🏢 Logo</h3>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showLogo" checked>
+                        Afficher un logo
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label for="logoFile">Fichier logo :</label>
+                    <input type="file" id="logoFile" accept=".png" style="display: none;">
+                    <button id="uploadLogoBtn" class="btn btn-secondary">📁 Uploader PNG</button>
+                    <select id="logoSelect">
+                        <option value="">Logo ACTUA par défaut</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="logoPosition">Position du logo :</label>
+                    <select id="logoPosition">
+                        <option value="top-right">↗ Haut Droite</option>
+                    </select>
+                </div>
+                <div id="logoPreview" class="logo-preview"></div>
+            </section>
+
+            <!-- Animation Section -->
+            <section class="control-section">
+                <h3>🎭 Animation</h3>
+                <div class="control-group">
+                    <label for="animation">Type d'animation :</label>
+                    <select id="animation">
+                        <option value="">Aucune</option>
+                        <option value="square">Carré Mobile</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Audio Section -->
+            <section class="control-section">
+                <h3>🔊 Audio</h3>
+                <div class="control-group">
+                    <label for="audioFreq">Fréquence (Hz) :</label>
+                    <input type="range" id="audioFreq" min="100" max="2000" value="1000" step="100">
+                    <span id="audioFreqValue">1000 Hz</span>
+                </div>
+            </section>
+
+            <!-- Video Format Section -->
+            <section class="control-section">
+                <h3>📺 Format Vidéo</h3>
+                <div class="control-group">
+                    <label for="videoFormat">Format de sortie :</label>
+                    <select id="videoFormat">
+                        <option value="1080i50">1080i50 (1920x1080 entrelacé)</option>
+                    </select>
+                </div>
+            </section>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="actions">
+            <button id="previewBtn" class="btn btn-secondary">🔍 Aperçu Commande</button>
+            <button id="startBtn" class="btn btn-primary">▶️ Démarrer Diffusion</button>
+            <button id="stopBtn" class="btn btn-danger" disabled>⏹️ Arrêter</button>
+        </div>
+
+        <!-- Status Panel -->
+        <div id="status" class="status-panel">
+            <h3>État du système</h3>
+            <div id="statusText">Prêt</div>
+            <div id="commandPreview" class="command-preview"></div>
+        </div>
+
+        <!-- Log Panel -->
+        <div id="logPanel" class="log-panel">
+            <h3>Logs FFmpeg</h3>
+            <div id="logOutput"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

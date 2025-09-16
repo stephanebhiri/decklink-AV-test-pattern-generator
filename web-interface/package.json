@@ -1,0 +1,26 @@
+{
+  "name": "actua-broadcast-generator",
+  "version": "1.0.0",
+  "description": "Professional broadcast pattern generator with web interface",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "child_process": "^1.0.2",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "path": "^0.12.7",
+    "socket.io": "^4.8.1"
+  },
+  "keywords": [
+    "broadcast",
+    "ffmpeg",
+    "decklink",
+    "video",
+    "actua"
+  ],
+  "author": "ACTUA PARIS",
+  "license": "MIT"
+}

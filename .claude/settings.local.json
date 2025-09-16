@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Read(//Users/actua/**)",
+      "Bash(./ffmpeg -f lavfi -i \"color=c=black:size=1920x1080:rate=25\" -filter_complex \"[0:v]geq=r=if(and(gte(X,mod(T*25,1920)),lt(X,mod(T*25,1920)+100),gte(Y,490),lt(Y,590)),255,0):g=if(and(gte(X,mod(T*25,1920)),lt(X,mod(T*25,1920)+100),gte(Y,490),lt(Y,590)),255,0):b=if(and(gte(X,mod(T*25,1920)),lt(X,mod(T*25,1920)+100),gte(Y,490),lt(Y,590)),255,0)[v]\" -map \"[v]\" -t 10 -c:v v210 -f decklink -s 1920x1080 \"UltraStudio Mini Monitor\")",
+      "Bash(chmod:*)",
+      "Bash(timeout:*)",
+      "Bash(./moving_bar.sh:*)",
+      "Bash(make:*)",
+      "Bash(./ffmpeg -f lavfi -i \"color=c=blue:size=1920x1080:rate=25\" -f lavfi -i \"sine=frequency=1000:sample_rate=48000\" -filter_complex \"[0:v]drawtext=text=''ACTUA PARIS'':fontsize=80:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[v]\" -map \"[v]\" -map 1:a -c:v v210 -pix_fmt yuv422p10le -r 25 -field_order tt -flags +ilme+ildct -c:a pcm_s16le -ar 48000 -ac 2 -f decklink -s 1920x1080 \"UltraStudio Mini Monitor\")",
+      "Read(//System/Library/Fonts/**)",
+      "Bash(./ffmpeg -f lavfi -i \"color=c=blue:size=1920x1080:rate=25\" -i ~/Pictures/PNG-actua/actua.png -f lavfi -i \"sine=frequency=1000:sample_rate=48000\" -filter_complex \"[0:v]drawtext=text=''ACTUA PARIS'':fontfile=''/System/Library/Fonts/SFNSMono.ttf'':fontsize=80:fontcolor=white:x=(w-text_w)/2:y=100[txt];[txt][1:v]overlay=W-w-10:10[v]\" -map \"[v]\" -map 2:a -c:v v210 -pix_fmt yuv422p10le -r 25 -field_order tt -flags +ilme+ildct -c:a pcm_s16le -ar 48000 -ac 2 -f decklink -s 1920x1080 \"UltraStudio Mini Monitor\")",
+      "Bash(./ffmpeg -loop 1 -i ~/Pictures/bars.png -i ~/Pictures/PNG-actua/actua.png -f lavfi -i \"sine=frequency=1000:sample_rate=48000\" -filter_complex \"[0:v]drawtext=text=''ACTUA PARIS'':fontfile=''/System/Library/Fonts/SFNSMono.ttf'':fontsize=80:fontcolor=white:x=(w-text_w)/2:y=100[txt];[txt][1:v]overlay=W-w-10:10[v]\" -map \"[v]\" -map 2:a -c:v v210 -pix_fmt yuv422p10le -r 25 -field_order tt -flags +ilme+ildct -c:a pcm_s16le -ar 48000 -ac 2 -f decklink -s 1920x1080 \"UltraStudio Mini Monitor\")",
+      "Bash(mkdir:*)",
+      "Bash(node:*)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
