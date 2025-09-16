@@ -22,7 +22,9 @@ class FFmpegBuilder {
             logoPosition = 'top-right',
             audioFreq = 1000,
             animation = null,
-            videoFormat = '1080i50'
+            videoFormat = '1080i50',
+            showClock = false,
+            clockPosition = 'bottom-right'
         } = config;
 
         // Calculate text position based on 9-grid system
@@ -34,12 +36,15 @@ class FFmpegBuilder {
         let inputs = [];
         let filterComplex = [];
 
+        // Get the framerate for the current video format
+        const fps = this.getFrameRate(videoFormat);
+
         // Background input
         if (background === 'bars') {
             cmd.push('-loop', '1', '-i', this.barsPath);
             inputs.push('0:v');
         } else if (background === 'blue' || background === 'black' || background === 'white') {
-            cmd.push('-f', 'lavfi', '-i', `color=c=${background}:size=1920x1080:rate=25`);
+            cmd.push('-f', 'lavfi', '-i', `color=c=${background}:size=1920x1080:rate=${fps}`);
             inputs.push('0:v');
         }
 
@@ -47,7 +52,7 @@ class FFmpegBuilder {
 
         // Animation input (if needed)
         if (animation === 'square') {
-            cmd.push('-f', 'lavfi', '-i', 'color=c=white:size=100x100:rate=25');
+            cmd.push('-f', 'lavfi', '-i', `color=c=white:size=100x100:rate=${fps}`);
             nextInput++;
         }
 
@@ -112,17 +117,33 @@ class FFmpegBuilder {
         // Add logo
         if (showLogo) {
             const logoInput = animation === 'square' ? '[2:v]' : '[1:v]';
-            filterComplex.push(`${currentOutput}${logoInput}overlay=${logoPos.x}:${logoPos.y}[v]`);
+            filterComplex.push(`${currentOutput}${logoInput}overlay=${logoPos.x}:${logoPos.y}[logo${filterIndex}]`);
+            currentOutput = `[logo${filterIndex}]`;
+            filterIndex++;
+        }
+
+        // Add clock
+        if (showClock) {
+            const clockPos = this.getClockPosition(clockPosition);
+
+            // For all formats, n increments at the actual output framerate
+            // 1080i50 outputs at 25fps (with interlaced fields)
+            // 720p50 outputs at 50fps
+            // So we just use mod(n, fps) for all formats
+            const clockFilter = `drawtext=text='%{gmtime} | %{eif\\:mod(n\\,${fps})\\:d\\:02}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
+
+            filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
+            currentOutput = `[clock${filterIndex}]`;
+            filterIndex++;
+        }
+
+        // Rename final output to [v]
+        if (currentOutput !== '[0:v]') {
+            filterComplex[filterComplex.length - 1] = filterComplex[filterComplex.length - 1].replace(/\[[^\]]+\]$/, '[v]');
             currentOutput = '[v]';
         } else {
-            // Rename final output to [v]
-            if (currentOutput !== '[0:v]') {
-                filterComplex[filterComplex.length - 1] = filterComplex[filterComplex.length - 1].replace(/\[[^\]]+\]$/, '[v]');
-                currentOutput = '[v]';
-            } else {
-                filterComplex.push('[0:v]copy[v]');
-                currentOutput = '[v]';
-            }
+            filterComplex.push('[0:v]copy[v]');
+            currentOutput = '[v]';
         }
 
         // Add filter complex
@@ -269,6 +290,34 @@ class FFmpegBuilder {
             { id: '720p60', name: '720p60 (1280x720 progressif)' },
             { id: '576i50', name: '576i50 (720x576 entrelacé PAL)' }
         ];
+    }
+
+    getClockPosition(position) {
+        const positions = {
+            'top-left': { x: '10', y: '10' },
+            'top-center': { x: '(w-text_w)/2', y: '10' },
+            'top-right': { x: 'w-text_w-10', y: '10' },
+            'center-left': { x: '10', y: '(h-text_h)/2' },
+            'center': { x: '(w-text_w)/2', y: '(h-text_h)/2' },
+            'center-right': { x: 'w-text_w-10', y: '(h-text_h)/2' },
+            'bottom-left': { x: '10', y: 'h-text_h-10' },
+            'bottom-center': { x: '(w-text_w)/2', y: 'h-text_h-10' },
+            'bottom-right': { x: 'w-text_w-10', y: 'h-text_h-10' }
+        };
+        return positions[position] || positions['bottom-right'];
+    }
+
+    getFrameRate(format) {
+        // Extract the frame rate from the format string
+        const frameRates = {
+            '1080i50': 25,  // Interlaced 50Hz = 25 fps
+            '1080p25': 25,
+            '1080p30': 30,
+            '720p50': 50,
+            '720p60': 60,
+            '576i50': 25   // Interlaced 50Hz = 25 fps
+        };
+        return frameRates[format] || 25;
     }
 }
 

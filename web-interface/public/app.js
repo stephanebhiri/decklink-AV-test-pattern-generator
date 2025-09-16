@@ -10,6 +10,7 @@ class BroadcastController {
         this.loadOptions();
         this.loadSettings();
         this.loadPresetsList();
+        this.createClockPositions();
         this.checkServerStatus();
     }
 
@@ -49,6 +50,11 @@ class BroadcastController {
         this.savePresetBtn = document.getElementById('savePresetBtn');
         this.loadPresetBtn = document.getElementById('loadPresetBtn');
         this.deletePresetBtn = document.getElementById('deletePresetBtn');
+
+        // Clock elements
+        this.showClockCheckbox = document.getElementById('showClock');
+        this.clockPositionsGrid = document.getElementById('clockPositions');
+        this.selectedClockPosition = 'bottom-right';
     }
 
     bindEvents() {
@@ -76,6 +82,9 @@ class BroadcastController {
         this.loadPresetBtn.addEventListener('click', () => this.loadPreset());
         this.deletePresetBtn.addEventListener('click', () => this.deletePreset());
         this.logoSelect.addEventListener('change', () => this.updateLogoPreview());
+
+        // Clock events
+        this.showClockCheckbox.addEventListener('change', () => this.previewCommand());
 
         // Auto-preview on change
         const autoPreviewElements = [
@@ -145,7 +154,9 @@ class BroadcastController {
             logoPosition: this.logoPosition.value,
             animation: this.animationSelect.value || null,
             audioFreq: parseInt(this.audioFreqSlider.value),
-            videoFormat: this.videoFormatSelect.value
+            videoFormat: this.videoFormatSelect.value,
+            showClock: this.showClockCheckbox.checked,
+            clockPosition: this.selectedClockPosition
         };
     }
 
@@ -361,8 +372,53 @@ class BroadcastController {
         // Apply video format
         if (config.videoFormat) this.videoFormatSelect.value = config.videoFormat;
 
+        // Apply clock
+        if (config.showClock !== undefined) this.showClockCheckbox.checked = config.showClock;
+        if (config.clockPosition) this.selectClockPosition(config.clockPosition);
+
         // Update UI
         this.updateLogoPreview();
+        this.previewCommand();
+    }
+
+    createClockPositions() {
+        const positions = [
+            { id: 'top-left', label: '↖️' },
+            { id: 'top-center', label: '⬆️' },
+            { id: 'top-right', label: '↗️' },
+            { id: 'center-left', label: '⬅️' },
+            { id: 'center', label: '⚫' },
+            { id: 'center-right', label: '➡️' },
+            { id: 'bottom-left', label: '↙️' },
+            { id: 'bottom-center', label: '⬇️' },
+            { id: 'bottom-right', label: '↘️' }
+        ];
+
+        positions.forEach(pos => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'position-btn';
+            button.textContent = pos.label;
+            button.title = pos.id;
+            button.dataset.position = pos.id;
+
+            if (pos.id === this.selectedClockPosition) {
+                button.classList.add('active');
+            }
+
+            button.addEventListener('click', () => this.selectClockPosition(pos.id));
+            this.clockPositionsGrid.appendChild(button);
+        });
+    }
+
+    selectClockPosition(position) {
+        this.selectedClockPosition = position;
+
+        // Update button states
+        this.clockPositionsGrid.querySelectorAll('.position-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.position === position);
+        });
+
         this.previewCommand();
     }
 
