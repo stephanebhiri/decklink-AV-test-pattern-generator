@@ -57,6 +57,35 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.json());
 
+// Presets management
+const presetsFile = path.join(__dirname, 'presets.json');
+let savedPresets = {};
+
+// Load presets from file
+function loadPresets() {
+    try {
+        if (fs.existsSync(presetsFile)) {
+            const data = fs.readFileSync(presetsFile, 'utf8');
+            savedPresets = JSON.parse(data);
+        }
+    } catch (error) {
+        console.error('Error loading presets:', error);
+        savedPresets = {};
+    }
+}
+
+// Save presets to file
+function savePresets() {
+    try {
+        fs.writeFileSync(presetsFile, JSON.stringify(savedPresets, null, 2));
+    } catch (error) {
+        console.error('Error saving presets:', error);
+    }
+}
+
+// Load presets on startup
+loadPresets();
+
 // FFmpeg process management
 let currentFFmpegProcess = null;
 const ffmpegBuilder = new FFmpegBuilder();
@@ -86,6 +115,29 @@ app.get('/api/logo-positions', (req, res) => {
     res.json(ffmpegBuilder.getLogoPositions());
 });
 
+app.get('/api/status', (req, res) => {
+    const { spawn } = require('child_process');
+
+    // Check for actual running FFmpeg processes
+    const psProcess = spawn('pgrep', ['-f', 'ffmpeg.*UltraStudio']);
+    let pids = '';
+
+    psProcess.stdout.on('data', (data) => {
+        pids += data.toString();
+    });
+
+    psProcess.on('close', (code) => {
+        const pidList = pids.trim().split('\n').filter(pid => pid);
+        const isRunning = pidList.length > 0;
+
+        res.json({
+            isRunning: isRunning,
+            pid: pidList.length > 0 ? pidList[0] : null,
+            processCount: pidList.length
+        });
+    });
+});
+
 app.get('/api/settings', (req, res) => {
     res.json(savedSettings);
 });
@@ -93,6 +145,36 @@ app.get('/api/settings', (req, res) => {
 app.post('/api/settings', (req, res) => {
     savedSettings = { ...savedSettings, ...req.body };
     res.json({ success: true, settings: savedSettings });
+});
+
+// Presets routes
+app.get('/api/presets', (req, res) => {
+    res.json(savedPresets);
+});
+
+app.post('/api/presets', (req, res) => {
+    const { name, config } = req.body;
+    if (!name || !config) {
+        return res.status(400).json({ error: 'Name and config are required' });
+    }
+
+    savedPresets[name] = {
+        ...config,
+        createdAt: new Date().toISOString()
+    };
+    savePresets();
+    res.json({ success: true, presets: savedPresets });
+});
+
+app.delete('/api/presets/:name', (req, res) => {
+    const { name } = req.params;
+    if (savedPresets[name]) {
+        delete savedPresets[name];
+        savePresets();
+        res.json({ success: true, presets: savedPresets });
+    } else {
+        res.status(404).json({ error: 'Preset not found' });
+    }
 });
 
 app.post('/api/upload-logo', upload.single('logo'), (req, res) => {
@@ -149,10 +231,11 @@ io.on('connection', (socket) => {
     socket.on('start-broadcast', (config) => {
         console.log('Starting broadcast with config:', config);
 
-        // Stop current process if running
-        if (currentFFmpegProcess) {
-            currentFFmpegProcess.kill('SIGTERM');
-            currentFFmpegProcess = null;
+        // Check if FFmpeg is already running
+        if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
+            console.log('FFmpeg is already running, rejecting new request');
+            socket.emit('broadcast-error', 'Une diffusion est déjà en cours. Arrêtez d\'abord la diffusion actuelle.');
+            return;
         }
 
         try {
@@ -178,13 +261,19 @@ io.on('connection', (socket) => {
                 currentFFmpegProcess = null;
             });
 
+            // Wait a bit for FFmpeg to actually start before emitting success
+            setTimeout(() => {
+                if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
+                    console.log('Emitting broadcast-started event');
+                    socket.emit('broadcast-started', { success: true });
+                }
+            }, 1000);
+
             currentFFmpegProcess.on('error', (error) => {
                 console.error('FFmpeg error:', error);
                 socket.emit('broadcast-error', error.message);
                 currentFFmpegProcess = null;
             });
-
-            socket.emit('broadcast-started', { success: true });
 
         } catch (error) {
             console.error('Error starting broadcast:', error);
@@ -199,9 +288,34 @@ io.on('connection', (socket) => {
             currentFFmpegProcess = null;
             socket.emit('broadcast-stopped', { manual: true });
         } else {
-            // Process already stopped, just update UI
-            socket.emit('broadcast-stopped', { manual: true, alreadyStopped: true });
+            // No process reference, try to kill via pkill (for post-refresh scenarios)
+            console.log('No process reference, attempting pkill');
+            const { spawn } = require('child_process');
+            const killProcess = spawn('pkill', ['-f', 'ffmpeg.*UltraStudio']);
+
+            killProcess.on('close', (code) => {
+                console.log('pkill ffmpeg (stop) exit code:', code);
+                if (code === 0) {
+                    socket.emit('broadcast-stopped', { manual: true, killed: true });
+                } else {
+                    socket.emit('broadcast-stopped', { manual: true, alreadyStopped: true });
+                }
+            });
         }
+    });
+
+    socket.on('kill-ffmpeg', () => {
+        console.log('Emergency kill FFmpeg requested');
+        const { spawn } = require('child_process');
+
+        // Kill all FFmpeg processes
+        const killProcess = spawn('pkill', ['-f', 'ffmpeg']);
+
+        killProcess.on('close', (code) => {
+            console.log('pkill ffmpeg exit code:', code);
+            currentFFmpegProcess = null;
+            socket.emit('broadcast-stopped', { manual: true, killed: true });
+        });
     });
 
     socket.on('disconnect', () => {

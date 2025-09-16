@@ -1,0 +1,16 @@
+{
+  "Actua": {
+    "background": "blue",
+    "text": "ACTUA\n58 Av Marceau\n75008 Paris\n+33613059041",
+    "textPosition": "center",
+    "fontSize": 80,
+    "textColor": "white",
+    "showLogo": true,
+    "logoFile": null,
+    "logoPosition": "top-right",
+    "animation": null,
+    "audioFreq": 1000,
+    "videoFormat": "1080i50",
+    "createdAt": "2025-09-16T22:16:03.681Z"
+  }
+}

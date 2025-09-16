@@ -122,7 +122,26 @@
             <button id="previewBtn" class="btn btn-secondary">🔍 Aperçu Commande</button>
             <button id="startBtn" class="btn btn-primary">▶️ Démarrer Diffusion</button>
             <button id="stopBtn" class="btn btn-danger" disabled>⏹️ Arrêter</button>
+            <button id="killBtn" class="btn btn-warning">⚠️ Kill FFmpeg</button>
         </div>
+
+        <!-- Presets Section -->
+        <section class="control-section">
+            <h3>💾 Presets</h3>
+            <div class="control-group">
+                <div class="preset-controls">
+                    <input type="text" id="presetName" placeholder="Nom du preset..." style="flex: 1; margin-right: 10px;">
+                    <button id="savePresetBtn" class="btn btn-info">💾 Sauver</button>
+                </div>
+                <div class="preset-list">
+                    <select id="presetSelect" style="flex: 1; margin-right: 10px;">
+                        <option value="">Sélectionner un preset...</option>
+                    </select>
+                    <button id="loadPresetBtn" class="btn btn-info">📁 Charger</button>
+                    <button id="deletePresetBtn" class="btn btn-warning">🗑️ Supprimer</button>
+                </div>
+            </div>
+        </section>
 
         <!-- Status Panel -->
         <div id="status" class="status-panel">

@@ -9,6 +9,8 @@ class BroadcastController {
         this.updateRangeValues();
         this.loadOptions();
         this.loadSettings();
+        this.loadPresetsList();
+        this.checkServerStatus();
     }
 
     initializeElements() {
@@ -34,11 +36,19 @@ class BroadcastController {
         this.previewBtn = document.getElementById('previewBtn');
         this.startBtn = document.getElementById('startBtn');
         this.stopBtn = document.getElementById('stopBtn');
+        this.killBtn = document.getElementById('killBtn');
 
         // Status elements
         this.statusText = document.getElementById('statusText');
         this.commandPreview = document.getElementById('commandPreview');
         this.logOutput = document.getElementById('logOutput');
+
+        // Preset elements
+        this.presetNameInput = document.getElementById('presetName');
+        this.presetSelect = document.getElementById('presetSelect');
+        this.savePresetBtn = document.getElementById('savePresetBtn');
+        this.loadPresetBtn = document.getElementById('loadPresetBtn');
+        this.deletePresetBtn = document.getElementById('deletePresetBtn');
     }
 
     bindEvents() {
@@ -55,10 +65,16 @@ class BroadcastController {
         this.previewBtn.addEventListener('click', () => this.previewCommand());
         this.startBtn.addEventListener('click', () => this.startBroadcast());
         this.stopBtn.addEventListener('click', () => this.stopBroadcast());
+        this.killBtn.addEventListener('click', () => this.killFFmpeg());
 
         // Logo upload events
         this.uploadLogoBtn.addEventListener('click', () => this.logoFileInput.click());
         this.logoFileInput.addEventListener('change', (e) => this.handleLogoUpload(e));
+
+        // Preset events
+        this.savePresetBtn.addEventListener('click', () => this.savePreset());
+        this.loadPresetBtn.addEventListener('click', () => this.loadPreset());
+        this.deletePresetBtn.addEventListener('click', () => this.deletePreset());
         this.logoSelect.addEventListener('change', () => this.updateLogoPreview());
 
         // Auto-preview on change
@@ -84,6 +100,7 @@ class BroadcastController {
 
     setupSocketListeners() {
         this.socket.on('broadcast-started', (data) => {
+            console.log('Received broadcast-started event:', data);
             this.updateStatus('Diffusion en cours...', 'running');
             this.setButtonStates(false, true);
             this.appendLog('✅ Diffusion démarrée avec succès\n');
@@ -132,6 +149,23 @@ class BroadcastController {
         };
     }
 
+    async checkServerStatus() {
+        try {
+            const response = await fetch('/api/status');
+            const status = await response.json();
+
+            if (status.isRunning) {
+                console.log('FFmpeg is already running, PID:', status.pid);
+                this.updateStatus('Diffusion en cours...', 'running');
+                this.setButtonStates(false, true);
+                this.isRunning = true;  // Force isRunning to true
+                this.appendLog(`🔄 FFmpeg détecté en cours d'exécution (PID: ${status.pid})\n`);
+            }
+        } catch (error) {
+            console.error('Error checking server status:', error);
+        }
+    }
+
     async previewCommand() {
         try {
             const config = this.getConfig();
@@ -172,6 +206,13 @@ class BroadcastController {
         this.updateStatus('Arrêt en cours...', 'running');
     }
 
+    killFFmpeg() {
+        if (confirm('Attention! Ceci va forcer l\'arrêt de tous les processus FFmpeg. Continuer?')) {
+            this.socket.emit('kill-ffmpeg');
+            this.appendLog('⚠️ Arrêt forcé demandé...\n');
+        }
+    }
+
     updateStatus(text, type = 'ready') {
         this.statusText.textContent = text;
         this.statusText.className = `status-${type}`;
@@ -190,6 +231,139 @@ class BroadcastController {
 
     clearLog() {
         this.logOutput.textContent = '';
+    }
+
+    // Preset management methods
+    async savePreset() {
+        const name = this.presetNameInput.value.trim();
+        if (!name) {
+            alert('Veuillez entrer un nom pour le preset');
+            return;
+        }
+
+        const config = this.getConfig();
+        try {
+            const response = await fetch('/api/presets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, config })
+            });
+
+            if (response.ok) {
+                this.presetNameInput.value = '';
+                await this.loadPresetsList();
+                this.appendLog(`💾 Preset "${name}" sauvegardé\n`);
+            } else {
+                alert('Erreur lors de la sauvegarde du preset');
+            }
+        } catch (error) {
+            console.error('Error saving preset:', error);
+            alert('Erreur lors de la sauvegarde du preset');
+        }
+    }
+
+    async loadPreset() {
+        const selectedPreset = this.presetSelect.value;
+        if (!selectedPreset) {
+            alert('Veuillez sélectionner un preset à charger');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/presets');
+            const presets = await response.json();
+            const preset = presets[selectedPreset];
+
+            if (preset) {
+                this.applyConfig(preset);
+                this.appendLog(`📁 Preset "${selectedPreset}" chargé\n`);
+            }
+        } catch (error) {
+            console.error('Error loading preset:', error);
+            alert('Erreur lors du chargement du preset');
+        }
+    }
+
+    async deletePreset() {
+        const selectedPreset = this.presetSelect.value;
+        if (!selectedPreset) {
+            alert('Veuillez sélectionner un preset à supprimer');
+            return;
+        }
+
+        if (!confirm(`Êtes-vous sûr de vouloir supprimer le preset "${selectedPreset}" ?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/presets/${encodeURIComponent(selectedPreset)}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                await this.loadPresetsList();
+                this.appendLog(`🗑️ Preset "${selectedPreset}" supprimé\n`);
+            } else {
+                alert('Erreur lors de la suppression du preset');
+            }
+        } catch (error) {
+            console.error('Error deleting preset:', error);
+            alert('Erreur lors de la suppression du preset');
+        }
+    }
+
+    async loadPresetsList() {
+        try {
+            const response = await fetch('/api/presets');
+            const presets = await response.json();
+
+            // Clear current options except the first one
+            this.presetSelect.innerHTML = '<option value="">Sélectionner un preset...</option>';
+
+            // Add presets to select
+            Object.keys(presets).forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                this.presetSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading presets list:', error);
+        }
+    }
+
+    applyConfig(config) {
+        // Apply background
+        if (config.background) this.backgroundSelect.value = config.background;
+
+        // Apply text
+        if (config.text !== undefined) this.textInput.value = config.text;
+        if (config.textPosition) this.selectTextPosition(config.textPosition);
+        if (config.fontSize) {
+            this.fontSizeSlider.value = config.fontSize;
+            this.fontSizeValue.textContent = config.fontSize + 'px';
+        }
+        if (config.textColor) this.textColorInput.value = config.textColor;
+
+        // Apply logo
+        if (config.showLogo !== undefined) this.showLogoCheckbox.checked = config.showLogo;
+        if (config.logoPosition) this.selectLogoPosition(config.logoPosition);
+
+        // Apply animation
+        if (config.animation) this.animationSelect.value = config.animation;
+
+        // Apply audio
+        if (config.audioFreq) {
+            this.audioFreqSlider.value = config.audioFreq;
+            this.audioFreqValue.textContent = config.audioFreq + ' Hz';
+        }
+
+        // Apply video format
+        if (config.videoFormat) this.videoFormatSelect.value = config.videoFormat;
+
+        // Update UI
+        this.updateLogoPreview();
+        this.previewCommand();
     }
 
     async loadOptions() {
