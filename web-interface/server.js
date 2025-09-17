@@ -323,6 +323,7 @@ function appendToLog(message) {
 function startFFmpegProcess(config, socket, options = {}) {
     try {
         const cleanConfig = sanitizeConfig(config);
+        savedSettings = cleanConfig;
         const command = ffmpegBuilder.buildCommand(cleanConfig);
         console.log('FFmpeg command:', command.join(' '));
 
