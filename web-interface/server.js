@@ -15,6 +15,7 @@ const io = socketIo(server);
 // Settings storage
 let savedSettings = {
     background: 'blue',
+    customBackground: null,
     text: 'ACTUA PARIS',
     textPosition: 'center',
     fontSize: 80,
@@ -24,6 +25,8 @@ let savedSettings = {
     logoPosition: 'top-right',
     animation: null,
     audioFreq: 1000,
+    audioChannels: 2,
+    audioChannelMap: [true, true, false, false, false, false, false, false],
     videoFormat: '1080i50'
 };
 
@@ -44,11 +47,40 @@ const upload = multer({
         if (file.mimetype === 'image/png') {
             cb(null, true);
         } else {
-            cb(new Error('Seuls les fichiers PNG sont acceptés'), false);
+            cb(new Error('Only PNG files are accepted'), false);
         }
     },
     limits: {
         fileSize: 5 * 1024 * 1024 // 5MB max
+    }
+});
+
+// Background upload configuration
+const backgroundStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const dir = path.join(__dirname, 'uploads', 'backgrounds');
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        cb(null, dir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'bg-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const backgroundUpload = multer({
+    storage: backgroundStorage,
+    fileFilter: function (req, file, cb) {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are accepted'), false);
+        }
+    },
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB max
     }
 });
 
@@ -177,6 +209,10 @@ app.get('/api/logo-positions', (req, res) => {
     res.json(ffmpegBuilder.getLogoPositions());
 });
 
+app.get('/api/audio-channels', (req, res) => {
+    res.json(ffmpegBuilder.getAudioChannelMetadata());
+});
+
 app.get('/api/status', (req, res) => {
     const { spawn } = require('child_process');
 
@@ -242,7 +278,7 @@ app.delete('/api/presets/:name', (req, res) => {
 app.post('/api/upload-logo', upload.single('logo'), (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ error: 'Aucun fichier uploadé' });
+            return res.status(400).json({ error: 'No file uploaded' });
         }
 
         res.json({
@@ -276,6 +312,43 @@ app.get('/api/uploaded-logos', (req, res) => {
     }
 });
 
+app.post('/api/upload-background', backgroundUpload.single('background'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        res.json({
+            success: true,
+            filename: req.file.filename,
+            originalname: req.file.originalname,
+            size: req.file.size
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/uploaded-backgrounds', (req, res) => {
+    try {
+        const dir = path.join(__dirname, 'uploads', 'backgrounds');
+        if (!fs.existsSync(dir)) {
+            return res.json([]);
+        }
+
+        const files = fs.readdirSync(dir)
+            .filter(file => ['.png', '.jpg', '.jpeg'].includes(path.extname(file).toLowerCase()))
+            .map(file => ({
+                filename: file,
+                path: `/uploads/backgrounds/${file}`
+            }));
+
+        res.json(files);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/preview', (req, res) => {
     const config = req.body;
     const command = ffmpegBuilder.buildCommand(config);
@@ -295,7 +368,7 @@ io.on('connection', (socket) => {
 
         if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
             console.log('FFmpeg is already running, rejecting new request');
-            socket.emit('broadcast-error', 'Une diffusion est déjà en cours. Arrêtez d\'abord la diffusion actuelle.');
+            socket.emit('broadcast-error', 'A broadcast is already running. Stop it before starting another.');
             return;
         }
 

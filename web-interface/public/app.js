@@ -8,13 +8,14 @@ class BroadcastController {
         this.isStopping = false;
         this.hasPendingChanges = false;
         this.initializeElements();
-        this.defaultStartLabel = this.startBtn.textContent || 'Démarrer Diffusion';
-        this.applyLabel = 'Appliquer les changements';
+        this.defaultStartLabel = this.startBtn.textContent || 'Start Broadcast';
+        this.applyLabel = 'Apply Changes';
         this.bindEvents();
         this.setupSocketListeners();
         this.updateRangeValues();
-        this.loadOptions();
-        this.loadSettings();
+        this.loadOptions()
+            .then(() => this.loadSettings())
+            .catch(error => console.error('Error initialising options/settings:', error));
         this.loadPresetsList();
         this.createClockPositions();
         this.checkServerStatus();
@@ -35,10 +36,19 @@ class BroadcastController {
         this.logoSelect = document.getElementById('logoSelect');
         this.logoPosition = document.getElementById('logoPosition');
         this.logoPreview = document.getElementById('logoPreview');
+        this.customBackgroundControls = document.getElementById('customBackgroundControls');
+        this.customBackgroundSelect = document.getElementById('customBackgroundSelect');
+        this.backgroundPreview = document.getElementById('backgroundPreview');
+        this.uploadBgBtn = document.getElementById('uploadBgBtn');
+        this.backgroundFileInput = document.getElementById('backgroundFile');
         this.animationSelect = document.getElementById('animation');
         this.audioFreqSlider = document.getElementById('audioFreq');
         this.audioFreqValue = document.getElementById('audioFreqValue');
         this.videoFormatSelect = document.getElementById('videoFormat');
+        this.tonePresetButtons = Array.from(document.querySelectorAll('.tone-preset-btn'));
+        this.audioPresetValues = this.tonePresetButtons.map(btn => parseInt(btn.dataset.audioPreset, 10));
+        this.audioChannelContainer = document.getElementById('audioChannelToggles');
+        this.audioChannelToggles = [];
 
         // Action buttons
         this.previewBtn = document.getElementById('previewBtn');
@@ -62,6 +72,8 @@ class BroadcastController {
         this.showClockCheckbox = document.getElementById('showClock');
         this.clockPositionsGrid = document.getElementById('clockPositions');
         this.selectedClockPosition = 'bottom-right';
+        this.selectedTonePreset = null;
+        this.pendingAudioChannelMap = null;
     }
 
     bindEvents() {
@@ -72,7 +84,17 @@ class BroadcastController {
 
         this.audioFreqSlider.addEventListener('input', () => {
             this.audioFreqValue.textContent = this.audioFreqSlider.value + ' Hz';
+            this.syncTonePresetHighlight();
         });
+
+        this.backgroundSelect.addEventListener('change', () => {
+            this.updateBackgroundControls();
+        });
+        if (this.customBackgroundSelect) {
+            this.customBackgroundSelect.addEventListener('change', () => {
+                this.updateBackgroundPreview();
+            });
+        }
 
         // Button events
         this.previewBtn.addEventListener('click', () => this.previewCommand());
@@ -83,6 +105,16 @@ class BroadcastController {
         // Logo upload events
         this.uploadLogoBtn.addEventListener('click', () => this.logoFileInput.click());
         this.logoFileInput.addEventListener('change', (e) => this.handleLogoUpload(e));
+        if (this.uploadBgBtn) {
+            this.uploadBgBtn.addEventListener('click', () => this.backgroundFileInput.click());
+        }
+        if (this.backgroundFileInput) {
+            this.backgroundFileInput.addEventListener('change', (e) => this.handleBackgroundUpload(e));
+        }
+
+        this.tonePresetButtons.forEach(button => {
+            button.addEventListener('click', () => this.applyTonePreset(parseInt(button.dataset.audioPreset, 10)));
+        });
 
         // Preset events
         this.savePresetBtn.addEventListener('click', () => this.savePreset());
@@ -103,6 +135,9 @@ class BroadcastController {
             this.textColorSelect, this.showLogoCheckbox, this.logoSelect, this.logoPosition, this.animationSelect,
             this.audioFreqSlider, this.videoFormatSelect
         ];
+        if (this.customBackgroundSelect) {
+            autoPreviewElements.push(this.customBackgroundSelect);
+        }
 
         autoPreviewElements.forEach(element => {
             element.addEventListener('change', () => {
@@ -134,12 +169,12 @@ class BroadcastController {
             this.isStopping = false;
             this.isRunning = true;
             this.hasPendingChanges = false;
-            this.updateStatus('Diffusion en cours...', 'running');
+            this.updateStatus('Broadcast running...', 'running');
             this.updateControls();
             if (data && data.restarted) {
-                this.appendLog('✅ Changements appliqués\n');
+                this.appendLog('✅ Changes applied\n');
             } else {
-                this.appendLog('✅ Diffusion démarrée avec succès\n');
+                this.appendLog('✅ Broadcast started successfully\n');
             }
         });
 
@@ -149,23 +184,23 @@ class BroadcastController {
             this.isStopping = false;
             this.isRunning = false;
             this.hasPendingChanges = false;
-            this.updateStatus('Diffusion arrêtée', 'ready');
+            this.updateStatus('Broadcast stopped', 'ready');
             this.updateControls();
             if (data.manual) {
-                this.appendLog('⏹️ Diffusion arrêtée manuellement\n');
+                this.appendLog('⏹️ Broadcast stopped manually\n');
             } else {
-                this.appendLog(`⏹️ Diffusion terminée (code: ${data.code})\n`);
+                this.appendLog(`⏹️ Broadcast finished (code: ${data.code})\n`);
             }
         });
 
         this.socket.on('broadcast-error', (error) => {
-            this.updateStatus(`Erreur: ${error}`, 'error');
+            this.updateStatus(`Error: ${error}`, 'error');
             this.isStarting = false;
             this.isApplying = false;
             this.isStopping = false;
             this.isRunning = false;
             this.updateControls();
-            this.appendLog(`❌ Erreur: ${error}\n`);
+            this.appendLog(`❌ Error: ${error}\n`);
         });
 
         this.socket.on('ffmpeg-output', (output) => {
@@ -176,11 +211,22 @@ class BroadcastController {
     updateRangeValues() {
         this.fontSizeValue.textContent = this.fontSizeSlider.value + 'px';
         this.audioFreqValue.textContent = this.audioFreqSlider.value + ' Hz';
+        this.syncTonePresetHighlight();
     }
 
     getConfig() {
+        const channelMap = this.audioChannelToggles.length > 0
+            ? this.audioChannelToggles.map(cb => cb.checked)
+            : [true, true];
+        const activeChannels = channelMap.filter(Boolean).length || 2;
+        const backgroundValue = this.backgroundSelect.value;
+        const customBackground = (backgroundValue === 'custom' && this.customBackgroundSelect)
+            ? (this.customBackgroundSelect.value || null)
+            : null;
+
         return {
-            background: this.backgroundSelect.value,
+            background: backgroundValue,
+            customBackground,
             text: this.textInput.value,
             textPosition: this.textPositionSelect.value,
             fontSize: parseInt(this.fontSizeSlider.value),
@@ -189,6 +235,8 @@ class BroadcastController {
             logoFile: this.logoSelect.value || null,
             logoPosition: this.logoPosition.value,
             animation: this.animationSelect.value || null,
+            audioChannels: activeChannels,
+            audioChannelMap: channelMap,
             audioFreq: parseInt(this.audioFreqSlider.value),
             videoFormat: this.videoFormatSelect.value,
             showClock: this.showClockCheckbox.checked,
@@ -203,14 +251,14 @@ class BroadcastController {
 
             if (status.isRunning) {
                 console.log('FFmpeg is already running, PID:', status.pid);
-                this.updateStatus('Diffusion en cours...', 'running');
+                this.updateStatus('Broadcast running...', 'running');
                 this.isRunning = true;
                 this.isStarting = false;
                 this.isApplying = false;
                 this.isStopping = false;
                 this.hasPendingChanges = false;
                 this.updateControls();
-                this.appendLog(`🔄 FFmpeg détecté en cours d'exécution (PID: ${status.pid})\n`);
+                this.appendLog(`🔄 Detected running FFmpeg (PID: ${status.pid})\n`);
             }
         } catch (error) {
             console.error('Error checking server status:', error);
@@ -233,14 +281,14 @@ class BroadcastController {
             if (data.success) {
                 this.commandPreview.textContent = data.command;
                 if (this.isRunning) {
-                    this.updateStatus('Changements prêts - appliquez pour mettre à jour', 'running');
+                    this.updateStatus('Changes ready - apply to update', 'running');
                 } else if (!this.isStarting) {
-                    this.updateStatus('Commande générée - Prêt à diffuser', 'ready');
+                    this.updateStatus('Command generated - ready to broadcast', 'ready');
                 }
             }
         } catch (error) {
-            console.error('Erreur preview:', error);
-            this.updateStatus('Erreur génération commande', 'error');
+            console.error('Preview error:', error);
+            this.updateStatus('Command generation error', 'error');
         }
     }
 
@@ -253,8 +301,8 @@ class BroadcastController {
             this.hasPendingChanges = false;
             this.isStarting = true;
             this.socket.emit('apply-broadcast-settings', config);
-            this.updateStatus('Application des changements...', 'running');
-            this.appendLog('🔄 Application des changements...\n');
+            this.updateStatus('Applying changes...', 'running');
+            this.appendLog('🔄 Applying changes...\n');
             this.updateControls();
             return;
         }
@@ -263,9 +311,9 @@ class BroadcastController {
 
         this.isStarting = true;
         this.socket.emit('start-broadcast', config);
-        this.updateStatus('Démarrage en cours...', 'running');
+        this.updateStatus('Starting broadcast...', 'running');
         this.clearLog();
-        this.appendLog('🚀 Démarrage de la diffusion...\n');
+        this.appendLog('🚀 Starting broadcast...\n');
         this.updateControls();
     }
 
@@ -275,14 +323,14 @@ class BroadcastController {
         this.isStopping = true;
         this.hasPendingChanges = false;
         this.socket.emit('stop-broadcast');
-        this.updateStatus('Arrêt en cours...', 'running');
+        this.updateStatus('Stopping broadcast...', 'running');
         this.updateControls();
     }
 
     killFFmpeg() {
-        if (confirm('Attention! Ceci va forcer l\'arrêt de tous les processus FFmpeg. Continuer?')) {
+        if (confirm('Warning! This will force stop every FFmpeg process. Continue?')) {
             this.socket.emit('kill-ffmpeg');
-            this.appendLog('⚠️ Arrêt forcé demandé...\n');
+            this.appendLog('⚠️ Forced stop requested...\n');
         }
     }
 
@@ -325,11 +373,164 @@ class BroadcastController {
         this.logOutput.textContent = '';
     }
 
+    applyTonePreset(frequency) {
+        const freqValue = parseInt(frequency, 10);
+        if (!Number.isFinite(freqValue)) {
+            return;
+        }
+
+        this.audioFreqSlider.value = freqValue;
+        this.audioFreqValue.textContent = freqValue + ' Hz';
+        this.selectedTonePreset = freqValue;
+        this.updateTonePresetButtons();
+        this.previewCommand();
+        this.saveSettings();
+        this.handleConfigChange();
+    }
+
+    syncTonePresetHighlight() {
+        const currentFreq = parseInt(this.audioFreqSlider.value, 10);
+
+        if (this.audioPresetValues.includes(currentFreq)) {
+            this.selectedTonePreset = currentFreq;
+        } else {
+            this.selectedTonePreset = null;
+        }
+
+        this.updateTonePresetButtons();
+    }
+
+    updateTonePresetButtons() {
+        this.tonePresetButtons.forEach(button => {
+            const presetValue = parseInt(button.dataset.audioPreset, 10);
+            button.classList.toggle('active', this.selectedTonePreset === presetValue);
+        });
+    }
+
+    updateBackgroundControls() {
+        if (!this.backgroundSelect || !this.customBackgroundControls) {
+            return;
+        }
+
+        const isCustom = this.backgroundSelect.value === 'custom';
+        this.customBackgroundControls.style.display = isCustom ? 'block' : 'none';
+
+        if (isCustom) {
+            let autoSelected = false;
+            if (this.customBackgroundSelect && !this.customBackgroundSelect.value && this.customBackgroundSelect.options.length > 1) {
+                this.customBackgroundSelect.selectedIndex = 1;
+                autoSelected = true;
+            }
+            this.updateBackgroundPreview();
+            if (autoSelected) {
+                this.previewCommand();
+                this.saveSettings();
+                this.handleConfigChange();
+            }
+        } else {
+            if (this.customBackgroundSelect) {
+                this.customBackgroundSelect.value = '';
+            }
+            if (this.backgroundPreview) {
+                this.backgroundPreview.style.display = 'none';
+                this.backgroundPreview.innerHTML = '';
+            }
+        }
+    }
+
+    updateBackgroundPreview() {
+        if (!this.backgroundPreview || !this.customBackgroundSelect) {
+            return;
+        }
+
+        const file = this.customBackgroundSelect.value;
+        if (this.backgroundSelect.value === 'custom' && file) {
+            this.backgroundPreview.style.display = 'flex';
+            this.backgroundPreview.innerHTML = `
+                <img src="/uploads/backgrounds/${file}" alt="Background preview">
+                <div class="bg-info">File: ${file}</div>
+            `;
+        } else {
+            this.backgroundPreview.style.display = 'none';
+            this.backgroundPreview.innerHTML = '';
+        }
+    }
+
+    renderAudioChannelToggles(metadata) {
+        this.audioChannelContainer.innerHTML = '';
+        this.audioChannelToggles = metadata.map((meta, index) => {
+            const wrapper = document.createElement('label');
+            wrapper.className = 'channel-toggle';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.dataset.channelIndex = index;
+            checkbox.checked = index < 2;
+            checkbox.addEventListener('change', () => this.handleAudioChannelToggle(checkbox));
+
+            const span = document.createElement('span');
+            span.textContent = meta.label;
+
+            wrapper.appendChild(checkbox);
+            wrapper.appendChild(span);
+            this.audioChannelContainer.appendChild(wrapper);
+
+            return checkbox;
+        });
+
+        this.applyPendingAudioChannelMap();
+    }
+
+    applyAudioChannelMap(channelMap) {
+        if (!Array.isArray(channelMap) || this.audioChannelToggles.length === 0) {
+            this.pendingAudioChannelMap = channelMap;
+            return;
+        }
+
+        this.audioChannelToggles.forEach((checkbox, index) => {
+            checkbox.checked = Boolean(channelMap[index]);
+        });
+
+        this.ensureMinimumAudioChannels();
+    }
+
+    applyPendingAudioChannelMap() {
+        if (this.pendingAudioChannelMap) {
+            this.applyAudioChannelMap(this.pendingAudioChannelMap);
+            this.pendingAudioChannelMap = null;
+        } else {
+            this.ensureMinimumAudioChannels();
+        }
+    }
+
+    ensureMinimumAudioChannels() {
+        const activeCount = this.audioChannelToggles.filter(cb => cb.checked).length;
+        if (activeCount === 0 && this.audioChannelToggles.length > 0) {
+            this.audioChannelToggles.slice(0, 2).forEach(cb => {
+                cb.checked = true;
+            });
+        }
+    }
+
+    handleAudioChannelToggle(checkbox) {
+        if (!checkbox.checked) {
+            const stillActive = this.audioChannelToggles.some(cb => cb.checked);
+            if (!stillActive) {
+                checkbox.checked = true;
+                return;
+            }
+        }
+
+        this.previewCommand();
+        this.saveSettings();
+        this.handleConfigChange();
+    }
+
     // Preset management methods
     async savePreset() {
         const name = this.presetNameInput.value.trim();
         if (!name) {
-            alert('Veuillez entrer un nom pour le preset');
+            alert('Please enter a name for the preset.');
             return;
         }
 
@@ -344,20 +545,20 @@ class BroadcastController {
             if (response.ok) {
                 this.presetNameInput.value = '';
                 await this.loadPresetsList();
-                this.appendLog(`💾 Preset "${name}" sauvegardé\n`);
+                this.appendLog(`💾 Preset "${name}" saved\n`);
             } else {
-                alert('Erreur lors de la sauvegarde du preset');
+                alert('Error while saving the preset.');
             }
         } catch (error) {
             console.error('Error saving preset:', error);
-            alert('Erreur lors de la sauvegarde du preset');
+            alert('Error while saving the preset.');
         }
     }
 
     async loadPreset() {
         const selectedPreset = this.presetSelect.value;
         if (!selectedPreset) {
-            alert('Veuillez sélectionner un preset à charger');
+            alert('Please select a preset to load.');
             return;
         }
 
@@ -368,22 +569,22 @@ class BroadcastController {
 
             if (preset) {
                 this.applyConfig(preset);
-                this.appendLog(`📁 Preset "${selectedPreset}" chargé\n`);
+                this.appendLog(`📁 Preset "${selectedPreset}" loaded\n`);
             }
         } catch (error) {
             console.error('Error loading preset:', error);
-            alert('Erreur lors du chargement du preset');
+            alert('Error while loading the preset.');
         }
     }
 
     async deletePreset() {
         const selectedPreset = this.presetSelect.value;
         if (!selectedPreset) {
-            alert('Veuillez sélectionner un preset à supprimer');
+            alert('Please select a preset to delete.');
             return;
         }
 
-        if (!confirm(`Êtes-vous sûr de vouloir supprimer le preset "${selectedPreset}" ?`)) {
+        if (!confirm(`Are you sure you want to delete the preset "${selectedPreset}"?`)) {
             return;
         }
 
@@ -394,13 +595,13 @@ class BroadcastController {
 
             if (response.ok) {
                 await this.loadPresetsList();
-                this.appendLog(`🗑️ Preset "${selectedPreset}" supprimé\n`);
+                this.appendLog(`🗑️ Preset "${selectedPreset}" deleted\n`);
             } else {
-                alert('Erreur lors de la suppression du preset');
+                alert('Error while deleting the preset.');
             }
         } catch (error) {
             console.error('Error deleting preset:', error);
-            alert('Erreur lors de la suppression du preset');
+            alert('Error while deleting the preset.');
         }
     }
 
@@ -410,7 +611,7 @@ class BroadcastController {
             const presets = await response.json();
 
             // Clear current options except the first one
-            this.presetSelect.innerHTML = '<option value="">Sélectionner un preset...</option>';
+            this.presetSelect.innerHTML = '<option value="">Select a preset...</option>';
 
             // Add presets to select
             Object.keys(presets).forEach(name => {
@@ -426,7 +627,14 @@ class BroadcastController {
 
     applyConfig(config) {
         // Apply background
-        if (config.background) this.backgroundSelect.value = config.background;
+        if (config.background) {
+            this.backgroundSelect.value = config.background;
+        }
+        if (this.customBackgroundSelect && config.customBackground !== undefined) {
+            this.customBackgroundSelect.value = config.customBackground || '';
+        }
+        this.updateBackgroundControls();
+        this.updateBackgroundPreview();
 
         // Apply text
         if (config.text !== undefined) this.textInput.value = config.text;
@@ -445,9 +653,14 @@ class BroadcastController {
         if (config.animation) this.animationSelect.value = config.animation;
 
         // Apply audio
-        if (config.audioFreq) {
+        if (Array.isArray(config.audioChannelMap)) {
+            this.applyAudioChannelMap(config.audioChannelMap);
+        }
+
+        if (config.audioFreq !== undefined) {
             this.audioFreqSlider.value = config.audioFreq;
             this.audioFreqValue.textContent = config.audioFreq + ' Hz';
+            this.syncTonePresetHighlight();
         }
 
         // Apply video format
@@ -509,6 +722,11 @@ class BroadcastController {
 
     async loadOptions() {
         try {
+            // Load backgrounds
+            const backgrounds = await fetch('/api/backgrounds').then(r => r.json());
+            this.populateSelect(this.backgroundSelect, backgrounds, this.backgroundSelect.value || 'blue');
+            await this.loadUploadedBackgrounds();
+
             // Load text positions
             const textPositions = await fetch('/api/text-positions').then(r => r.json());
             this.populateSelect(this.textPositionSelect, textPositions);
@@ -517,19 +735,29 @@ class BroadcastController {
             const logoPositions = await fetch('/api/logo-positions').then(r => r.json());
             this.populateSelect(this.logoPosition, logoPositions);
 
+            // Load animations
+            const animations = await fetch('/api/animations').then(r => r.json());
+            this.populateSelect(this.animationSelect, animations);
+
             // Load video formats
             const videoFormats = await fetch('/api/video-formats').then(r => r.json());
             this.populateSelect(this.videoFormatSelect, videoFormats);
 
+            // Load audio channel metadata
+            const audioChannels = await fetch('/api/audio-channels').then(r => r.json());
+            this.renderAudioChannelToggles(audioChannels);
+
             // Load uploaded logos
             await this.loadUploadedLogos();
 
+            this.updateBackgroundControls();
         } catch (error) {
             console.error('Error loading options:', error);
         }
     }
 
-    populateSelect(select, options) {
+    populateSelect(select, options, selectedValue = null) {
+        const preference = selectedValue !== null ? selectedValue : select.value;
         select.innerHTML = '';
         options.forEach(option => {
             const optionElement = document.createElement('option');
@@ -537,6 +765,18 @@ class BroadcastController {
             optionElement.textContent = option.name;
             select.appendChild(optionElement);
         });
+
+        if (preference) {
+            const hasMatch = Array.from(select.options).some(opt => opt.value === String(preference));
+            if (hasMatch) {
+                select.value = String(preference);
+                return;
+            }
+        }
+
+        if (select.options.length > 0) {
+            select.selectedIndex = 0;
+        }
     }
 
     async loadUploadedLogos() {
@@ -544,7 +784,7 @@ class BroadcastController {
             const logos = await fetch('/api/uploaded-logos').then(r => r.json());
 
             // Clear existing options except default
-            this.logoSelect.innerHTML = '<option value="">Logo ACTUA par défaut</option>';
+            this.logoSelect.innerHTML = '<option value="">Default ACTUA logo</option>';
 
             logos.forEach(logo => {
                 const option = document.createElement('option');
@@ -557,6 +797,27 @@ class BroadcastController {
         }
     }
 
+    async loadUploadedBackgrounds() {
+        if (!this.customBackgroundSelect) {
+            return;
+        }
+
+        try {
+            const backgrounds = await fetch('/api/uploaded-backgrounds').then(r => r.json());
+            this.customBackgroundSelect.innerHTML = '<option value="">Select an uploaded background...</option>';
+
+            backgrounds.forEach(bg => {
+                const option = document.createElement('option');
+                option.value = bg.filename;
+                option.textContent = bg.filename;
+                this.customBackgroundSelect.appendChild(option);
+            });
+            this.updateBackgroundPreview();
+        } catch (error) {
+            console.error('Error loading uploaded backgrounds:', error);
+        }
+    }
+
     async loadSettings() {
         try {
             const response = await fetch('/api/settings');
@@ -564,6 +825,11 @@ class BroadcastController {
 
             // Apply settings to form elements
             this.backgroundSelect.value = settings.background || 'blue';
+            if (this.customBackgroundSelect) {
+                this.customBackgroundSelect.value = settings.customBackground || '';
+            }
+            this.updateBackgroundControls();
+            this.updateBackgroundPreview();
             this.textInput.value = settings.text || 'ACTUA PARIS';
             this.textPositionSelect.value = settings.textPosition || 'center';
             this.fontSizeSlider.value = settings.fontSize || 80;
@@ -572,6 +838,11 @@ class BroadcastController {
             this.logoSelect.value = settings.logoFile || '';
             this.logoPosition.value = settings.logoPosition || 'top-right';
             this.animationSelect.value = settings.animation || '';
+            const initialChannelMap = Array.isArray(settings.audioChannelMap)
+                ? settings.audioChannelMap
+                : new Array(Math.max(2, Number(settings.audioChannels) || 2)).fill(true);
+            this.applyAudioChannelMap(initialChannelMap);
+
             this.audioFreqSlider.value = settings.audioFreq || 1000;
             this.videoFormatSelect.value = settings.videoFormat || '1080i50';
 
@@ -608,7 +879,7 @@ class BroadcastController {
         formData.append('logo', file);
 
         try {
-            this.uploadLogoBtn.textContent = '📤 Upload...';
+            this.uploadLogoBtn.textContent = '📤 Uploading...';
             this.uploadLogoBtn.disabled = true;
 
             const response = await fetch('/api/upload-logo', {
@@ -626,17 +897,65 @@ class BroadcastController {
                 this.logoSelect.value = result.filename;
                 this.updateLogoPreview();
 
-                this.showUploadStatus('Logo uploadé avec succès!', 'success');
+                this.showUploadStatus(this.logoPreview, 'Logo uploaded successfully!', 'success');
             } else {
-                this.showUploadStatus('Erreur upload: ' + result.error, 'error');
+                this.showUploadStatus(this.logoPreview, 'Upload error: ' + result.error, 'error');
             }
 
         } catch (error) {
-            this.showUploadStatus('Erreur upload: ' + error.message, 'error');
+            this.showUploadStatus(this.logoPreview, 'Upload error: ' + error.message, 'error');
         } finally {
-            this.uploadLogoBtn.textContent = '📁 Uploader PNG';
+            this.uploadLogoBtn.textContent = '📁 Upload PNG';
             this.uploadLogoBtn.disabled = false;
             this.logoFileInput.value = '';
+        }
+    }
+
+    async handleBackgroundUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('background', file);
+
+        try {
+            if (this.uploadBgBtn) {
+                this.uploadBgBtn.textContent = '📤 Uploading...';
+                this.uploadBgBtn.disabled = true;
+            }
+
+            const response = await fetch('/api/upload-background', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                await this.loadUploadedBackgrounds();
+                this.backgroundSelect.value = 'custom';
+                if (this.customBackgroundSelect) {
+                    this.customBackgroundSelect.value = result.filename;
+                }
+                this.updateBackgroundControls();
+                this.previewCommand();
+                this.saveSettings();
+                this.handleConfigChange();
+                this.showUploadStatus(this.customBackgroundControls, 'Background uploaded successfully!', 'success');
+            } else {
+                this.showUploadStatus(this.customBackgroundControls, 'Upload error: ' + result.error, 'error');
+            }
+        } catch (error) {
+            console.error('Background upload error:', error);
+            this.showUploadStatus(this.customBackgroundControls, 'Upload error: ' + error.message, 'error');
+        } finally {
+            if (this.uploadBgBtn) {
+                this.uploadBgBtn.textContent = '📁 Upload Image';
+                this.uploadBgBtn.disabled = false;
+            }
+            if (this.backgroundFileInput) {
+                this.backgroundFileInput.value = '';
+            }
         }
     }
 
@@ -654,23 +973,29 @@ class BroadcastController {
         }
     }
 
-    showUploadStatus(message, type) {
-        // Remove existing status
-        const existingStatus = document.querySelector('.upload-status');
+    showUploadStatus(targetElement, message, type) {
+        const anchor = targetElement || this.logoPreview;
+        if (!anchor || !anchor.parentNode) {
+            return;
+        }
+
+        const parent = anchor.parentNode;
+        const existingStatus = parent.querySelector('.upload-status');
         if (existingStatus) {
             existingStatus.remove();
         }
 
-        // Create new status
         const status = document.createElement('div');
         status.className = `upload-status ${type}`;
         status.textContent = message;
         status.style.display = 'block';
 
-        // Add after logo preview
-        this.logoPreview.parentNode.insertBefore(status, this.logoPreview.nextSibling);
+        if (anchor.nextSibling) {
+            parent.insertBefore(status, anchor.nextSibling);
+        } else {
+            parent.appendChild(status);
+        }
 
-        // Auto-hide after 3 seconds
         setTimeout(() => {
             if (status.parentNode) {
                 status.remove();

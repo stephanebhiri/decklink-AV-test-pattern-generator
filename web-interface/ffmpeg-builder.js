@@ -7,12 +7,14 @@ class FFmpegBuilder {
         this.picturesPath = path.join(process.env.HOME, 'Pictures');
         this.logoPath = path.join(this.picturesPath, 'PNG-actua', 'actua.png');
         this.barsPath = path.join(this.picturesPath, 'bars.png');
+        this.resolutionTestPath = path.join(this.picturesPath, 'resolution_test.png');
         this.fontPath = '/System/Library/Fonts/SFNSMono.ttf';
     }
 
     buildCommand(config) {
         const {
             background = 'blue',
+            customBackground = null,
             text = 'ACTUA PARIS',
             fontSize = 80,
             textColor = 'white',
@@ -21,6 +23,8 @@ class FFmpegBuilder {
             logoFile = null,
             logoPosition = 'top-right',
             audioFreq = 1000,
+            audioChannels = 2,
+            audioChannelMap = null,
             animation = null,
             videoFormat = '1080i50',
             showClock = false,
@@ -45,8 +49,18 @@ class FFmpegBuilder {
         if (background === 'bars') {
             cmd.push('-loop', '1', '-i', this.barsPath);
             inputs.push('0:v');
+        } else if (background === 'resolution_test') {
+            cmd.push('-loop', '1', '-i', this.resolutionTestPath);
+            inputs.push('0:v');
+        } else if (background === 'custom' && customBackground) {
+            const customBgPath = path.join(__dirname, 'uploads', 'backgrounds', customBackground);
+            cmd.push('-loop', '1', '-i', customBgPath);
+            inputs.push('0:v');
         } else if (background === 'blue' || background === 'black' || background === 'white') {
             cmd.push('-f', 'lavfi', '-i', `color=c=${background}:size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else {
+            cmd.push('-f', 'lavfi', '-i', `color=c=blue:size=${resolution}:rate=${fps}`);
             inputs.push('0:v');
         }
 
@@ -65,12 +79,33 @@ class FFmpegBuilder {
             nextInput++;
         }
 
-        // Audio input
-        cmd.push('-f', 'lavfi', '-i', `sine=frequency=${audioFreq}:sample_rate=48000`);
+        // Audio input (support channel mapping)
+        const normalizedAudioFreq = Number.isFinite(audioFreq) ? audioFreq : parseInt(audioFreq, 10);
+        const toneFrequency = Number.isFinite(normalizedAudioFreq) ? normalizedAudioFreq : 1000;
+        const clampedToneFrequency = Math.max(20, Math.min(20000, toneFrequency));
+
+        const channelMap = this.resolveAudioChannelMap(audioChannelMap, audioChannels);
+        const activeChannelCount = channelMap.filter(Boolean).length;
+        const decklinkAudioChannels = activeChannelCount <= 2 ? 2 : 8;
+        const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
+        const toneExpr = `(sin(2*PI*${clampedToneFrequency}*t)*0.25)`;
+        const silentExpr = '(0.000001)';
+        const channelExprs = new Array(decklinkAudioChannels)
+            .fill(0)
+            .map((_, idx) => (channelMap[idx] ? toneExpr : silentExpr))
+            .join('|');
+        cmd.push('-f', 'lavfi', '-i', `aevalsrc=exprs=${channelExprs}:sample_rate=48000:channel_layout=${audioLayout}`);
 
         // Build filter chain
         let currentOutput = '[0:v]';
         let filterIndex = 0;
+
+        // Normalize frame rate before heavy filters so the clock sees each field for interlaced formats
+        if (videoFormat.includes('i')) {
+            filterComplex.push(`${currentOutput}fps=${fps}[fps${filterIndex}]`);
+            currentOutput = `[fps${filterIndex}]`;
+            filterIndex++;
+        }
 
         // Only scale the base layer when the requested format needs it (e.g. 720p, SD, or image backgrounds)
         const needsBaseScale = background === 'bars' || width !== 1920 || height !== 1080;
@@ -193,26 +228,32 @@ class FFmpegBuilder {
 
         cmd.push('-map', `${audioInputIndex}:a`);
 
-        // Output settings based on video format
-        const formatSettings = this.getVideoFormatSettings(videoFormat);
-        cmd.push(...formatSettings);
+        // Common audio output settings
+        cmd.push('-c:a', 'pcm_s16le', '-ar', '48000', '-ac', decklinkAudioChannels.toString(), '-channel_layout', audioLayout);
+
+        // Output settings based on video format (append DeckLink options including preroll)
+        const formatSettings = [...this.getVideoFormatSettings(videoFormat)];
+        const targetDevice = formatSettings.pop();
+        cmd.push(...formatSettings, '-preroll', '0.5', '-audio_depth', '16', '-channels', decklinkAudioChannels.toString(), targetDevice);
 
         return cmd;
     }
 
     getAvailableBackgrounds() {
         return [
-            { id: 'blue', name: 'Fond Bleu', type: 'color' },
-            { id: 'black', name: 'Fond Noir', type: 'color' },
-            { id: 'white', name: 'Fond Blanc', type: 'color' },
-            { id: 'bars', name: 'Mire Barres', type: 'image' }
+            { id: 'blue', name: 'Blue Background', type: 'color' },
+            { id: 'black', name: 'Black Background', type: 'color' },
+            { id: 'white', name: 'White Background', type: 'color' },
+            { id: 'bars', name: 'Color Bars', type: 'image' },
+            { id: 'resolution_test', name: 'Resolution Test Chart', type: 'image' },
+            { id: 'custom', name: 'Custom Background', type: 'upload' }
         ];
     }
 
     getAvailableAnimations() {
         return [
-            { id: null, name: 'Aucune' },
-            { id: 'square', name: 'Carré Mobile' }
+            { id: null, name: 'None' },
+            { id: 'square', name: 'Moving Square' }
         ];
     }
 
@@ -233,15 +274,15 @@ class FFmpegBuilder {
 
     getTextPositions() {
         return [
-            { id: 'top-left', name: '↖ Haut Gauche' },
-            { id: 'top-center', name: '↑ Haut Centre' },
-            { id: 'top-right', name: '↗ Haut Droite' },
-            { id: 'center-left', name: '← Centre Gauche' },
-            { id: 'center', name: '⊙ Centre' },
-            { id: 'center-right', name: '→ Centre Droite' },
-            { id: 'bottom-left', name: '↙ Bas Gauche' },
-            { id: 'bottom-center', name: '↓ Bas Centre' },
-            { id: 'bottom-right', name: '↘ Bas Droite' }
+            { id: 'top-left', name: '↖ Top Left' },
+            { id: 'top-center', name: '↑ Top Center' },
+            { id: 'top-right', name: '↗ Top Right' },
+            { id: 'center-left', name: '← Center Left' },
+            { id: 'center', name: '⊙ Center' },
+            { id: 'center-right', name: '→ Center Right' },
+            { id: 'bottom-left', name: '↙ Bottom Left' },
+            { id: 'bottom-center', name: '↓ Bottom Center' },
+            { id: 'bottom-right', name: '↘ Bottom Right' }
         ];
     }
 
@@ -262,15 +303,15 @@ class FFmpegBuilder {
 
     getLogoPositions() {
         return [
-            { id: 'top-left', name: '↖ Haut Gauche' },
-            { id: 'top-center', name: '↑ Haut Centre' },
-            { id: 'top-right', name: '↗ Haut Droite' },
-            { id: 'center-left', name: '← Centre Gauche' },
-            { id: 'center', name: '⊙ Centre' },
-            { id: 'center-right', name: '→ Centre Droite' },
-            { id: 'bottom-left', name: '↙ Bas Gauche' },
-            { id: 'bottom-center', name: '↓ Bas Centre' },
-            { id: 'bottom-right', name: '↘ Bas Droite' }
+            { id: 'top-left', name: '↖ Top Left' },
+            { id: 'top-center', name: '↑ Top Center' },
+            { id: 'top-right', name: '↗ Top Right' },
+            { id: 'center-left', name: '← Center Left' },
+            { id: 'center', name: '⊙ Center' },
+            { id: 'center-right', name: '→ Center Right' },
+            { id: 'bottom-left', name: '↙ Bottom Left' },
+            { id: 'bottom-center', name: '↓ Bottom Center' },
+            { id: 'bottom-right', name: '↘ Bottom Right' }
         ];
     }
 
@@ -278,59 +319,89 @@ class FFmpegBuilder {
         const formats = {
             '1080i50': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25', '-field_order', 'tt',
-                '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                 '-f', 'decklink', '-format_code', 'Hi50', '-raw_format', 'uyvy422',
-                '-audio_depth', '16', '-channels', '2',
                 'UltraStudio Mini Monitor'
             ],
             '1080p25': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25',
-                '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                 '-f', 'decklink', '-format_code', 'Hp25', '-raw_format', 'uyvy422',
-                '-audio_depth', '16', '-channels', '2',
                 'UltraStudio Mini Monitor'
             ],
             '1080p30': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '30',
-                '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                 '-f', 'decklink', '-format_code', 'Hp30', '-raw_format', 'uyvy422',
-                '-audio_depth', '16', '-channels', '2',
                 'UltraStudio Mini Monitor'
             ],
             '720p50': [
                 '-pix_fmt', 'uyvy422', '-s', '1280x720', '-r', '50',
-                '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                 '-f', 'decklink', '-format_code', 'Hp50', '-raw_format', 'uyvy422',
-                '-audio_depth', '16', '-channels', '2',
                 'UltraStudio Mini Monitor'
             ],
             '720p60': [
                 '-pix_fmt', 'uyvy422', '-s', '1280x720', '-r', '60',
-                '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                 '-f', 'decklink', '-format_code', 'Hp60', '-raw_format', 'uyvy422',
-                '-audio_depth', '16', '-channels', '2',
                 'UltraStudio Mini Monitor'
             ],
             '576i50': [
                 '-pix_fmt', 'uyvy422', '-s', '720x576', '-r', '25',
                 '-field_order', 'tt', '-flags', '+ilme+ildct',
-                '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
                 '-f', 'decklink', '-format_code', 'pal', '-raw_format', 'uyvy422',
-                '-audio_depth', '16', '-channels', '2',
                 'UltraStudio Mini Monitor'
             ]
         };
         return formats[format] || formats['1080i50'];
     }
 
+    getAudioChannelLayout(channels) {
+        const layoutMap = {
+            1: 'mono',
+            2: 'stereo',
+            3: '3.0',
+            4: '4.0',
+            5: '5.0',
+            6: '5.1',
+            7: '6.1',
+            8: '7.1'
+        };
+
+        return layoutMap[channels] || `${channels}c`;
+    }
+
+    getAudioChannelMetadata() {
+        return new Array(8).fill(0).map((_, idx) => ({
+            id: idx,
+            label: `Channel ${idx + 1}`
+        }));
+    }
+
+    resolveAudioChannelMap(channelMap, fallbackCount) {
+        const defaultCount = Math.min(8, Math.max(1, parseInt(fallbackCount, 10) || 2));
+        const normalizedMap = Array.isArray(channelMap)
+            ? channelMap.slice(0, 8).map(Boolean)
+            : new Array(defaultCount).fill(true);
+
+        while (normalizedMap.length < 8) {
+            normalizedMap.push(false);
+        }
+
+        if (!normalizedMap.some(Boolean)) {
+            normalizedMap[0] = true;
+            if (normalizedMap.length > 1) {
+                normalizedMap[1] = true;
+            }
+        }
+
+        return normalizedMap;
+    }
+
     getVideoFormats() {
         return [
-            { id: '1080i50', name: '1080i50 (1920x1080 entrelacé)' },
-            { id: '1080p25', name: '1080p25 (1920x1080 progressif)' },
-            { id: '1080p30', name: '1080p30 (1920x1080 progressif)' },
-            { id: '720p50', name: '720p50 (1280x720 progressif)' },
-            { id: '720p60', name: '720p60 (1280x720 progressif)' },
-            { id: '576i50', name: '576i50 (720x576 entrelacé PAL)' }
+            { id: '1080i50', name: '1080i50 (1920x1080 interlaced)' },
+            { id: '1080p25', name: '1080p25 (1920x1080 progressive)' },
+            { id: '1080p30', name: '1080p30 (1920x1080 progressive)' },
+            { id: '720p50', name: '720p50 (1280x720 progressive)' },
+            { id: '720p60', name: '720p60 (1280x720 progressive)' },
+            { id: '576i50', name: '576i50 (720x576 interlaced PAL)' }
         ];
     }
 

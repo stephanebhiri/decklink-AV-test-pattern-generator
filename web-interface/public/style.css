@@ -92,6 +92,95 @@ input[type="range"] {
     margin-right: 10px;
 }
 
+.range-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.range-row input[type="range"] {
+    flex: 1;
+    width: 100%;
+    margin-right: 0;
+}
+
+.tone-preset-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.tone-preset-btn {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.tone-preset-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    transform: translateY(-1px);
+}
+
+.tone-preset-btn.active {
+    background: #17a2b8;
+}
+
+.channel-toggle-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.channel-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.channel-toggle input[type="checkbox"] {
+    margin: 0;
+}
+
+.control-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.background-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.background-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.background-preview img {
+    max-width: 100%;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.background-preview .bg-info {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
 input[type="checkbox"] {
     width: auto;
     margin-right: 8px;
