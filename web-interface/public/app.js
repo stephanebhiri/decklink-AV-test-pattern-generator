@@ -44,6 +44,7 @@ class BroadcastController {
         this.animationSelect = document.getElementById('animation');
         this.audioFreqSlider = document.getElementById('audioFreq');
         this.audioFreqValue = document.getElementById('audioFreqValue');
+        this.audioLevelSelect = document.getElementById('audioLevel');
         this.videoFormatSelect = document.getElementById('videoFormat');
         this.tonePresetButtons = Array.from(document.querySelectorAll('.tone-preset-btn'));
         this.audioPresetValues = this.tonePresetButtons.map(btn => parseInt(btn.dataset.audioPreset, 10));
@@ -133,7 +134,7 @@ class BroadcastController {
         const autoPreviewElements = [
             this.backgroundSelect, this.textInput, this.textPositionSelect, this.fontSizeSlider,
             this.textColorSelect, this.showLogoCheckbox, this.logoSelect, this.logoPosition, this.animationSelect,
-            this.audioFreqSlider, this.videoFormatSelect
+            this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect
         ];
         if (this.customBackgroundSelect) {
             autoPreviewElements.push(this.customBackgroundSelect);
@@ -223,6 +224,16 @@ class BroadcastController {
         const customBackground = (backgroundValue === 'custom' && this.customBackgroundSelect)
             ? (this.customBackgroundSelect.value || null)
             : null;
+        const selectedAudioLevelOption = (this.audioLevelSelect && this.audioLevelSelect.selectedOptions.length > 0)
+            ? this.audioLevelSelect.selectedOptions[0]
+            : null;
+        const audioLevelRaw = (selectedAudioLevelOption && selectedAudioLevelOption.dataset && selectedAudioLevelOption.dataset.dbfs !== undefined)
+            ? selectedAudioLevelOption.dataset.dbfs
+            : (this.audioLevelSelect ? this.audioLevelSelect.value : '');
+        let audioLevelDb = audioLevelRaw ? String(audioLevelRaw) : '0';
+        if (audioLevelDb === '-0') {
+            audioLevelDb = '0';
+        }
 
         return {
             background: backgroundValue,
@@ -238,6 +249,7 @@ class BroadcastController {
             audioChannels: activeChannels,
             audioChannelMap: channelMap,
             audioFreq: parseInt(this.audioFreqSlider.value),
+            audioLevelDb,
             videoFormat: this.videoFormatSelect.value,
             showClock: this.showClockCheckbox.checked,
             clockPosition: this.selectedClockPosition
@@ -512,6 +524,47 @@ class BroadcastController {
         }
     }
 
+    setAudioLevelValue(levelDb) {
+        if (!this.audioLevelSelect) {
+            return;
+        }
+
+        const fallback = '0';
+        let targetValue = fallback;
+
+        if (levelDb !== undefined && levelDb !== null && levelDb !== '') {
+            targetValue = String(levelDb).trim();
+        }
+
+        if (targetValue === '-0' || targetValue === '-0.0') {
+            targetValue = '0';
+        }
+
+        const options = Array.from(this.audioLevelSelect.options);
+        const datasetMatch = options.find(opt => opt.dataset && opt.dataset.dbfs === targetValue);
+        if (datasetMatch) {
+            this.audioLevelSelect.value = datasetMatch.value;
+            return;
+        }
+
+        const directMatch = options.find(opt => opt.value === targetValue);
+        if (directMatch) {
+            this.audioLevelSelect.value = directMatch.value;
+            return;
+        }
+
+        const numericLevel = Number(targetValue);
+        const formatted = Number.isFinite(numericLevel)
+            ? (numericLevel > 0 ? `+${numericLevel}` : numericLevel.toString())
+            : targetValue;
+        const option = document.createElement('option');
+        option.value = `custom_${targetValue}`;
+        option.dataset.dbfs = targetValue;
+        option.textContent = `${formatted} dB`;
+        this.audioLevelSelect.appendChild(option);
+        this.audioLevelSelect.value = option.value;
+    }
+
     handleAudioChannelToggle(checkbox) {
         if (!checkbox.checked) {
             const stillActive = this.audioChannelToggles.some(cb => cb.checked);
@@ -656,6 +709,8 @@ class BroadcastController {
         if (Array.isArray(config.audioChannelMap)) {
             this.applyAudioChannelMap(config.audioChannelMap);
         }
+
+        this.setAudioLevelValue(config.audioLevelDb);
 
         if (config.audioFreq !== undefined) {
             this.audioFreqSlider.value = config.audioFreq;
@@ -844,6 +899,7 @@ class BroadcastController {
             this.applyAudioChannelMap(initialChannelMap);
 
             this.audioFreqSlider.value = settings.audioFreq || 1000;
+            this.setAudioLevelValue(settings.audioLevelDb);
             this.videoFormatSelect.value = settings.videoFormat || '1080i50';
 
             // Update range value displays

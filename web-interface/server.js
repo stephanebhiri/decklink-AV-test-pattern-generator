@@ -25,6 +25,7 @@ let savedSettings = {
     logoPosition: 'top-right',
     animation: null,
     audioFreq: 1000,
+    audioLevelDb: 0,
     audioChannels: 2,
     audioChannelMap: [true, true, false, false, false, false, false, false],
     videoFormat: '1080i50'

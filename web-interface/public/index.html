@@ -111,6 +111,32 @@
                     </div>
                 </div>
                 <div class="control-group">
+                    <label for="audioLevel">Audio level:</label>
+                    <select id="audioLevel">
+                        <optgroup label="Broadcast alignment (VU ≈ dBFS − 20)">
+                            <option value="vu_-28" data-dbfs="-8">-28 VU (-8 dBFS)</option>
+                            <option value="vu_-24" data-dbfs="-4">-24 VU (-4 dBFS)</option>
+                            <option value="vu_-22" data-dbfs="-2">-22 VU (-2 dBFS)</option>
+                            <option value="vu_-20" data-dbfs="0" selected>-20 VU (0 dBFS)</option>
+                            <option value="vu_-18" data-dbfs="2">-18 VU (+2 dBFS)</option>
+                            <option value="vu_-16" data-dbfs="4">-16 VU (+4 dBFS)</option>
+                        </optgroup>
+                        <optgroup label="Digital reference (dBFS)">
+                            <option value="dbfs_-24" data-dbfs="-24">-24 dBFS (≈ -44 VU)</option>
+                            <option value="dbfs_-18" data-dbfs="-18">-18 dBFS (≈ -38 VU)</option>
+                            <option value="dbfs_-12" data-dbfs="-12">-12 dBFS (≈ -32 VU)</option>
+                            <option value="dbfs_-9" data-dbfs="-9">-9 dBFS (≈ -29 VU)</option>
+                            <option value="dbfs_-6" data-dbfs="-6">-6 dBFS (≈ -26 VU)</option>
+                            <option value="dbfs_-3" data-dbfs="-3">-3 dBFS (≈ -23 VU)</option>
+                            <option value="dbfs_0" data-dbfs="0">0 dBFS (+20 VU)</option>
+                            <option value="dbfs_3" data-dbfs="3">+3 dBFS (+23 VU)</option>
+                            <option value="dbfs_6" data-dbfs="6">+6 dBFS (+26 VU)</option>
+                            <option value="dbfs_9" data-dbfs="9">+9 dBFS (+29 VU)</option>
+                            <option value="dbfs_12" data-dbfs="12">+12 dBFS (+32 VU)</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="control-group">
                     <label>Active channels:</label>
                     <div class="channel-toggle-row" id="audioChannelToggles"></div>
                     <div class="control-hint">Clear a channel to mute it; unused channels stay silent.</div>

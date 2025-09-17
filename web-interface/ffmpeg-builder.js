@@ -23,6 +23,7 @@ class FFmpegBuilder {
             logoFile = null,
             logoPosition = 'top-right',
             audioFreq = 1000,
+            audioLevelDb = 0,
             audioChannels = 2,
             audioChannelMap = null,
             animation = null,
@@ -83,12 +84,11 @@ class FFmpegBuilder {
         const normalizedAudioFreq = Number.isFinite(audioFreq) ? audioFreq : parseInt(audioFreq, 10);
         const toneFrequency = Number.isFinite(normalizedAudioFreq) ? normalizedAudioFreq : 1000;
         const clampedToneFrequency = Math.max(20, Math.min(20000, toneFrequency));
-
         const channelMap = this.resolveAudioChannelMap(audioChannelMap, audioChannels);
-        const activeChannelCount = channelMap.filter(Boolean).length;
-        const decklinkAudioChannels = activeChannelCount <= 2 ? 2 : 8;
+        const requiresExtendedLayout = channelMap.some((isActive, index) => isActive && index >= 2);
+        const decklinkAudioChannels = requiresExtendedLayout ? 8 : 2;
         const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
-        const toneExpr = `(sin(2*PI*${clampedToneFrequency}*t)*0.25)`;
+        const toneExpr = `(sin(2*PI*${clampedToneFrequency}*t))`;
         const silentExpr = '(0.000001)';
         const channelExprs = new Array(decklinkAudioChannels)
             .fill(0)
@@ -227,6 +227,11 @@ class FFmpegBuilder {
         audioInputIndex++; // Audio is always last
 
         cmd.push('-map', `${audioInputIndex}:a`);
+
+        const audioVolume = this.resolveAudioVolume(audioLevelDb);
+        if (audioVolume) {
+            cmd.push('-af', `volume=${audioVolume}`);
+        }
 
         // Common audio output settings
         cmd.push('-c:a', 'pcm_s16le', '-ar', '48000', '-ac', decklinkAudioChannels.toString(), '-channel_layout', audioLayout);
@@ -392,6 +397,23 @@ class FFmpegBuilder {
         }
 
         return normalizedMap;
+    }
+
+    resolveAudioVolume(levelDb) {
+        const numericLevel = Number(levelDb);
+        if (Number.isFinite(numericLevel)) {
+            const maxBoost = 12;
+            let clamped = Math.min(maxBoost, Math.max(-120, numericLevel));
+
+            const rounded = Number(clamped.toFixed(3));
+            if (rounded === 0) {
+                return '0dB';
+            }
+
+            return `${rounded}dB`;
+        }
+
+        return '0dB';
     }
 
     getVideoFormats() {
