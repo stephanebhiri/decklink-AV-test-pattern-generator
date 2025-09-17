@@ -31,7 +31,7 @@ const DEFAULT_CONFIG = {
     audioChannels: 2,
     audioChannelMap: [true, true, false, false, false, false, false, false],
     audioChannelIdCycle: new Array(8).fill(false),
-    audioChannelIdPop: new Array(8).fill(false),
+    audioChannelFlash: new Array(8).fill(false),
     audioChannelForce400: new Array(8).fill(false),
     videoFormat: '1080i50',
     showClock: false,
@@ -39,7 +39,7 @@ const DEFAULT_CONFIG = {
     showConfigOverlay: false,
     configOverlayFontSize: null,
     configOverlayPosition: 'top-left',
-    popFlashOffset: 0
+    flashOverlayOffset: 0
 };
 
 const DEFAULT_PRESETS = {
@@ -62,7 +62,7 @@ const DEFAULT_PRESETS = {
         audioChannels: 8,
         audioChannelMap: new Array(8).fill(true),
         audioChannelIdCycle: [false, false, true, false, false, false, true, false],
-        audioChannelIdPop: [false, true, false, false, false, true, false, false],
+        audioChannelFlash: [false, true, false, false, false, true, false, false],
         audioChannelForce400: [false, false, false, true, false, false, false, true],
         videoFormat: '1080i50',
         showClock: false,
@@ -99,9 +99,17 @@ function sanitizeAudioChannelMap(map) {
 function sanitizeConfig(config = {}) {
     const merged = { ...DEFAULT_CONFIG, ...config };
 
+    if (merged.audioChannelFlash === undefined && Array.isArray(config.audioChannelIdPop)) {
+        merged.audioChannelFlash = config.audioChannelIdPop.slice(0, 8).map(Boolean);
+    }
+
+    if (merged.flashOverlayOffset === undefined && config.popFlashOffset !== undefined) {
+        merged.flashOverlayOffset = config.popFlashOffset;
+    }
+
     merged.audioChannelMap = sanitizeAudioChannelMap(merged.audioChannelMap);
     merged.audioChannelIdCycle = normalizeBooleanArray(merged.audioChannelIdCycle, 8, false);
-    merged.audioChannelIdPop = normalizeBooleanArray(merged.audioChannelIdPop, 8, false);
+    merged.audioChannelFlash = normalizeBooleanArray(merged.audioChannelFlash, 8, false);
     merged.audioChannelForce400 = normalizeBooleanArray(merged.audioChannelForce400, 8, false);
 
     merged.audioChannels = Math.max(1, merged.audioChannelMap.filter(Boolean).length);
@@ -149,11 +157,11 @@ function sanitizeConfig(config = {}) {
         merged.configOverlayFontSize = null;
     }
 
-    const popOffset = Number(merged.popFlashOffset);
-    if (Number.isFinite(popOffset)) {
-        merged.popFlashOffset = Math.max(-100, Math.min(100, Math.round(popOffset)));
+    const flashOffset = Number(merged.flashOverlayOffset);
+    if (Number.isFinite(flashOffset)) {
+        merged.flashOverlayOffset = Math.max(-100, Math.min(100, Math.round(flashOffset)));
     } else {
-        merged.popFlashOffset = DEFAULT_CONFIG.popFlashOffset;
+        merged.flashOverlayOffset = DEFAULT_CONFIG.flashOverlayOffset;
     }
 
     const allowedOverlayPositions = new Set([

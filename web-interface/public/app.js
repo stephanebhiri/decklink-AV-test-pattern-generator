@@ -56,10 +56,10 @@ class BroadcastController {
         this.audioChannelToggles = [];
         this.audioChannelIdCycleToggles = [];
         this.audioChannelForce400Toggles = [];
-        this.audioChannelIdPopToggles = [];
+        this.audioChannelFlashToggles = [];
         this.pendingAudioChannelOptions = null;
-        this.popFlashOffsetSlider = document.getElementById('popFlashOffset');
-        this.popFlashOffsetValue = document.getElementById('popFlashOffsetValue');
+        this.flashOverlayOffsetSlider = document.getElementById('flashOverlayOffset');
+        this.flashOverlayOffsetValue = document.getElementById('flashOverlayOffsetValue');
 
         // Action buttons
         this.previewBtn = document.getElementById('previewBtn');
@@ -108,9 +108,9 @@ class BroadcastController {
             });
         }
 
-        if (this.popFlashOffsetSlider) {
-            this.popFlashOffsetSlider.addEventListener('input', () => {
-                this.popFlashOffsetValue.textContent = this.popFlashOffsetSlider.value + '%';
+        if (this.flashOverlayOffsetSlider) {
+            this.flashOverlayOffsetSlider.addEventListener('input', () => {
+                this.flashOverlayOffsetValue.textContent = this.flashOverlayOffsetSlider.value + '%';
             });
         }
 
@@ -168,8 +168,8 @@ class BroadcastController {
             this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect,
             this.overlayPositionSelect, this.overlayFontSizeSlider
         ];
-        if (this.popFlashOffsetSlider) {
-            autoPreviewElements.push(this.popFlashOffsetSlider);
+        if (this.flashOverlayOffsetSlider) {
+            autoPreviewElements.push(this.flashOverlayOffsetSlider);
         }
         if (this.showConfigOverlayCheckbox) {
             autoPreviewElements.push(this.showConfigOverlayCheckbox);
@@ -281,8 +281,8 @@ class BroadcastController {
         if (this.overlayFontSizeSlider && this.overlayFontSizeValue) {
             this.overlayFontSizeValue.textContent = this.overlayFontSizeSlider.value + 'px';
         }
-        if (this.popFlashOffsetSlider && this.popFlashOffsetValue) {
-            this.popFlashOffsetValue.textContent = this.popFlashOffsetSlider.value + '%';
+        if (this.flashOverlayOffsetSlider && this.flashOverlayOffsetValue) {
+            this.flashOverlayOffsetValue.textContent = this.flashOverlayOffsetSlider.value + '%';
         }
         this.syncTonePresetHighlight();
     }
@@ -325,8 +325,8 @@ class BroadcastController {
         const audioChannelIdCycle = this.audioChannelIdCycleToggles.length > 0
             ? this.audioChannelIdCycleToggles.map(cb => cb.checked)
             : [];
-        const audioChannelIdPop = this.audioChannelIdPopToggles.length > 0
-            ? this.audioChannelIdPopToggles.map(cb => cb.checked)
+        const audioChannelFlash = this.audioChannelFlashToggles.length > 0
+            ? this.audioChannelFlashToggles.map(cb => cb.checked)
             : [];
         const audioChannelForce400 = this.audioChannelForce400Toggles.length > 0
             ? this.audioChannelForce400Toggles.map(cb => cb.checked)
@@ -351,7 +351,7 @@ class BroadcastController {
             audioFreq: parseInt(this.audioFreqSlider.value),
             audioLevelDb,
             audioChannelIdCycle,
-            audioChannelIdPop,
+            audioChannelFlash,
             audioChannelForce400,
             videoFormat: this.videoFormatSelect.value,
             showClock: this.showClockCheckbox.checked,
@@ -359,7 +359,7 @@ class BroadcastController {
             showConfigOverlay: this.showConfigOverlayCheckbox ? this.showConfigOverlayCheckbox.checked : false,
             configOverlayFontSize: this.overlayFontSizeSlider ? parseInt(this.overlayFontSizeSlider.value, 10) : null,
             configOverlayPosition: this.overlayPositionSelect ? this.overlayPositionSelect.value : 'top-left',
-            popFlashOffset: this.popFlashOffsetSlider ? parseInt(this.popFlashOffsetSlider.value, 10) : 0
+            flashOverlayOffset: this.flashOverlayOffsetSlider ? parseInt(this.flashOverlayOffsetSlider.value, 10) : 0
         };
     }
 
@@ -579,7 +579,7 @@ class BroadcastController {
         this.audioChannelContainer.innerHTML = '';
         this.audioChannelToggles = [];
         this.audioChannelIdCycleToggles = [];
-        this.audioChannelIdPopToggles = [];
+        this.audioChannelFlashToggles = [];
         this.audioChannelForce400Toggles = [];
 
         metadata.forEach((meta, index) => {
@@ -617,14 +617,14 @@ class BroadcastController {
             idCycleLabel.appendChild(idCycleCheckbox);
             idCycleLabel.appendChild(document.createTextNode('ID cycle −20 dB'));
 
-            const popLabel = document.createElement('label');
-            popLabel.className = 'channel-option';
-            const popCheckbox = document.createElement('input');
-            popCheckbox.type = 'checkbox';
-            popCheckbox.dataset.channelIndex = index;
-            popCheckbox.addEventListener('change', () => this.handleAudioChannelOptionChange(index));
-            popLabel.appendChild(popCheckbox);
-            popLabel.appendChild(document.createTextNode('1-frame pop +12 dB'));
+            const flashLabel = document.createElement('label');
+            flashLabel.className = 'channel-option';
+            const flashCheckbox = document.createElement('input');
+            flashCheckbox.type = 'checkbox';
+            flashCheckbox.dataset.channelIndex = index;
+            flashCheckbox.addEventListener('change', () => this.handleAudioChannelOptionChange(index));
+            flashLabel.appendChild(flashCheckbox);
+            flashLabel.appendChild(document.createTextNode('1-frame Flash +12 dB'));
 
             const forceLabel = document.createElement('label');
             forceLabel.className = 'channel-option';
@@ -636,14 +636,14 @@ class BroadcastController {
             forceLabel.appendChild(document.createTextNode('Force 400 Hz'));
 
             optionsRow.appendChild(idCycleLabel);
-            optionsRow.appendChild(popLabel);
+            optionsRow.appendChild(flashLabel);
             optionsRow.appendChild(forceLabel);
             wrapper.appendChild(optionsRow);
             this.audioChannelContainer.appendChild(wrapper);
 
             this.audioChannelToggles.push(checkbox);
             this.audioChannelIdCycleToggles.push(idCycleCheckbox);
-            this.audioChannelIdPopToggles.push(popCheckbox);
+            this.audioChannelFlashToggles.push(flashCheckbox);
             this.audioChannelForce400Toggles.push(forceCheckbox);
         });
 
@@ -692,17 +692,17 @@ class BroadcastController {
 
     applyAudioChannelOptions(options = {}) {
         const idCycle = Array.isArray(options.idCycle) ? options.idCycle : [];
-        const idPop = Array.isArray(options.idPop) ? options.idPop : [];
+        const flashFlags = Array.isArray(options.flashFlags) ? options.flashFlags : [];
         const force400 = Array.isArray(options.force400) ? options.force400 : [];
 
         if (
             this.audioChannelIdCycleToggles.length === 0 ||
-            this.audioChannelIdPopToggles.length === 0 ||
+            this.audioChannelFlashToggles.length === 0 ||
             this.audioChannelForce400Toggles.length === 0
         ) {
             this.pendingAudioChannelOptions = {
                 idCycle: idCycle.slice(),
-                idPop: idPop.slice(),
+                flashFlags: flashFlags.slice(),
                 force400: force400.slice()
             };
             return;
@@ -711,8 +711,8 @@ class BroadcastController {
         this.audioChannelIdCycleToggles.forEach((checkbox, index) => {
             checkbox.checked = Boolean(idCycle[index]);
         });
-        this.audioChannelIdPopToggles.forEach((checkbox, index) => {
-            checkbox.checked = Boolean(idPop[index]);
+        this.audioChannelFlashToggles.forEach((checkbox, index) => {
+            checkbox.checked = Boolean(flashFlags[index]);
         });
         this.audioChannelForce400Toggles.forEach((checkbox, index) => {
             checkbox.checked = Boolean(force400[index]);
@@ -726,14 +726,14 @@ class BroadcastController {
         const mainToggle = this.audioChannelToggles[index];
         const enabled = mainToggle ? mainToggle.checked : false;
         const idCycleToggle = this.audioChannelIdCycleToggles[index];
-        const idPopToggle = this.audioChannelIdPopToggles[index];
+        const flashToggle = this.audioChannelFlashToggles[index];
         const forceToggle = this.audioChannelForce400Toggles[index];
 
         if (idCycleToggle) {
             idCycleToggle.disabled = !enabled;
         }
-        if (idPopToggle) {
-            idPopToggle.disabled = !enabled;
+        if (flashToggle) {
+            flashToggle.disabled = !enabled;
         }
         if (forceToggle) {
             forceToggle.disabled = !enabled;
@@ -951,7 +951,11 @@ class BroadcastController {
 
         this.applyAudioChannelOptions({
             idCycle: config.audioChannelIdCycle,
-            idPop: config.audioChannelIdPop,
+            flashFlags: Array.isArray(config.audioChannelFlash)
+                ? config.audioChannelFlash
+                : Array.isArray(config.audioChannelIdPop)
+                    ? config.audioChannelIdPop
+                    : [],
             force400: config.audioChannelForce400
         });
 
@@ -981,10 +985,11 @@ class BroadcastController {
         if (this.overlayPositionSelect && config.configOverlayPosition) {
             this.overlayPositionSelect.value = config.configOverlayPosition;
         }
-        if (this.popFlashOffsetSlider && config.popFlashOffset !== undefined) {
-            const popOffset = Number(config.popFlashOffset);
-            if (Number.isFinite(popOffset)) {
-                this.popFlashOffsetSlider.value = popOffset;
+        const incomingFlashOffset = config.flashOverlayOffset ?? config.popFlashOffset;
+        if (this.flashOverlayOffsetSlider && incomingFlashOffset !== undefined) {
+            const flashOffset = Number(incomingFlashOffset);
+            if (Number.isFinite(flashOffset)) {
+                this.flashOverlayOffsetSlider.value = flashOffset;
             }
         }
         this.updateOverlayControlsState();
@@ -1214,7 +1219,11 @@ class BroadcastController {
 
             this.applyAudioChannelOptions({
                 idCycle: settings.audioChannelIdCycle,
-                idPop: settings.audioChannelIdPop,
+                flashFlags: Array.isArray(settings.audioChannelFlash)
+                    ? settings.audioChannelFlash
+                    : Array.isArray(settings.audioChannelIdPop)
+                        ? settings.audioChannelIdPop
+                        : [],
                 force400: settings.audioChannelForce400
             });
 
@@ -1232,10 +1241,11 @@ class BroadcastController {
             if (this.overlayPositionSelect) {
                 this.overlayPositionSelect.value = settings.configOverlayPosition || 'top-left';
             }
-            if (this.popFlashOffsetSlider) {
-                const popOffset = Number(settings.popFlashOffset);
-                const offsetValue = Number.isFinite(popOffset) ? popOffset : 0;
-                this.popFlashOffsetSlider.value = offsetValue;
+            if (this.flashOverlayOffsetSlider) {
+                const rawFlashOffset = settings.flashOverlayOffset ?? settings.popFlashOffset;
+                const flashOffset = Number(rawFlashOffset);
+                const offsetValue = Number.isFinite(flashOffset) ? flashOffset : 0;
+                this.flashOverlayOffsetSlider.value = offsetValue;
             }
 
             // Update range value displays

@@ -64,7 +64,7 @@ class FFmpegBuilder {
             audioChannels = 2,
             audioChannelMap = null,
             audioChannelIdCycle = [],
-            audioChannelIdPop = [],
+            audioChannelFlash = [],
             audioChannelForce400 = [],
             animation = null,
             videoFormat = '1080i50',
@@ -73,7 +73,7 @@ class FFmpegBuilder {
             showConfigOverlay = false,
             configOverlayFontSize = null,
             configOverlayPosition = 'top-left',
-            popFlashOffset = 0
+            flashOverlayOffset = 0
         } = config;
 
         // Calculate text position based on 9-grid system
@@ -130,13 +130,13 @@ class FFmpegBuilder {
         const clampedToneFrequency = Math.max(20, Math.min(20000, toneFrequency));
         const channelMap = this.resolveAudioChannelMap(audioChannelMap, audioChannels);
         const idCycleFlags = this.normalizeChannelOption(audioChannelIdCycle);
-        const idPopFlags = this.normalizeChannelOption(audioChannelIdPop);
+        const flashFlags = this.normalizeChannelOption(audioChannelFlash);
         const force400Flags = this.normalizeChannelOption(audioChannelForce400);
         const requiresExtendedLayout = channelMap.some((isActive, index) => isActive && index >= 2);
         const decklinkAudioChannels = requiresExtendedLayout ? 8 : 2;
         const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
         const cycleExpr = this.getCycleEnvelope();
-        const { pop1Gate, pop2Gate } = this.getPopGateExpressions(fps);
+        const { flashLeadGate, flashTailGate } = this.getFlashGateExpressions(fps);
         const silentExpr = '(0.000001)';
         const channelExprList = [];
         for (let idx = 0; idx < decklinkAudioChannels; idx++) {
@@ -151,21 +151,21 @@ class FFmpegBuilder {
             let expr = `sin(2*PI*${channelFreq}*t)`;
 
             const cycleEnabled = Boolean(idCycleFlags[idx]);
-            const popEnabled = Boolean(idPopFlags[idx]);
+            const flashEnabled = Boolean(flashFlags[idx]);
 
             if (cycleEnabled) {
                 expr = `(${expr}*${cycleExpr})`;
             }
 
-            if (popEnabled) {
-                const popTerms = [
-                    `(sin(2*PI*1000*t)*${pop1Gate})`,
-                    `(sin(2*PI*400*t)*${pop2Gate})`
+            if (flashEnabled) {
+                const flashTerms = [
+                    `(sin(2*PI*1000*t)*${flashLeadGate})`,
+                    `(sin(2*PI*400*t)*${flashTailGate})`
                 ];
-                const combinedPop = popTerms.join('+');
+                const combinedFlash = flashTerms.join('+');
                 expr = cycleEnabled
-                    ? `(${expr})+${combinedPop}`
-                    : combinedPop;
+                    ? `(${expr})+${combinedFlash}`
+                    : combinedFlash;
             }
 
             channelExprList.push(expr);
@@ -251,27 +251,27 @@ class FFmpegBuilder {
                 }
             });
         }
-        const popOverlayFilters = [];
-        if (idPopFlags.some(Boolean)) {
+        const flashOverlayFilters = [];
+        if (flashFlags.some(Boolean)) {
             const frameDuration = fps > 0 ? (1 / fps) : 0.04;
             const frameExpr = frameDuration.toFixed(6);
-            const pop1Enable = `lt(mod(t\,2)\,${frameExpr})`;
-            const pop2End = (1 + frameDuration).toFixed(6);
-            const pop2Enable = `between(mod(t\,2)\,1\,${pop2End})`;
-            const popBoxWidth = 'iw*0.15';
-            const popBoxHeight = 'ih*0.15';
-            const popTextSize = Math.max(32, Math.round(height * 0.08));
+            const flashLeadEnable = `lt(mod(t\,2)\,${frameExpr})`;
+            const flashTailWindowEnd = (1 + frameDuration).toFixed(6);
+            const flashTailEnable = `between(mod(t\,2)\,1\,${flashTailWindowEnd})`;
+            const flashBoxWidth = 'iw*0.15';
+            const flashBoxHeight = 'ih*0.15';
+            const flashTextSize = Math.max(32, Math.round(height * 0.08));
             const escapedFontPath = this.fontPath.replace(/'/g, "\'");
-            const popYOffset = this.getPopFlashYExpression(popFlashOffset, popBoxHeight);
+            const flashOverlayY = this.getFlashOverlayYExpression(flashOverlayOffset, flashBoxHeight);
             const overlays = [
-                { enable: pop1Enable, boxColor: 'white@0.9', text: '1KHz', textColor: 'black' },
-                { enable: pop2Enable, boxColor: 'black@0.9', text: '400Hz', textColor: 'white' }
+                { enable: flashLeadEnable, boxColor: 'white@0.9', text: '1KHz', textColor: 'black' },
+                { enable: flashTailEnable, boxColor: 'black@0.9', text: '400Hz', textColor: 'white' }
             ];
 
             overlays.forEach(({ enable, boxColor, text, textColor }) => {
-                const boxFilter = `drawbox=x=(iw-${popBoxWidth})/2:y='${popYOffset}':w=${popBoxWidth}:h=${popBoxHeight}:color=${boxColor}:t=fill:enable='${enable}'`;
-                const textFilter = `drawtext=text='${text}':fontfile='${escapedFontPath}':fontsize=${popTextSize}:fontcolor=${textColor}:x=(w-text_w)/2:y='${this.getPopFlashTextYExpression(popYOffset, popBoxHeight)}':enable='${enable}'`;
-                popOverlayFilters.push(boxFilter, textFilter);
+                const boxFilter = `drawbox=x=(iw-${flashBoxWidth})/2:y='${flashOverlayY}':w=${flashBoxWidth}:h=${flashBoxHeight}:color=${boxColor}:t=fill:enable='${enable}'`;
+                const textFilter = `drawtext=text='${text}':fontfile='${escapedFontPath}':fontsize=${flashTextSize}:fontcolor=${textColor}:x=(w-text_w)/2:y='${this.getFlashOverlayTextYExpression(flashOverlayY, flashBoxHeight)}':enable='${enable}'`;
+                flashOverlayFilters.push(boxFilter, textFilter);
             });
         }
 
@@ -329,7 +329,7 @@ class FFmpegBuilder {
                 audioLevelDb,
                 channelMap,
                 idCycleFlags,
-                idPopFlags,
+                flashFlags,
                 force400Flags,
                 decklinkAudioChannels,
                 overlayFontSize: configOverlayFontSize,
@@ -345,9 +345,9 @@ class FFmpegBuilder {
             }
         }
 
-        if (popOverlayFilters.length > 0) {
-            popOverlayFilters.forEach(popFilter => {
-                filterComplex.push(`${currentOutput}${popFilter}[flash${filterIndex}]`);
+        if (flashOverlayFilters.length > 0) {
+            flashOverlayFilters.forEach(filterSnippet => {
+                filterComplex.push(`${currentOutput}${filterSnippet}[flash${filterIndex}]`);
                 currentOutput = `[flash${filterIndex}]`;
                 filterIndex++;
             });
@@ -585,14 +585,14 @@ class FFmpegBuilder {
         return 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
     }
 
-    getPopGateExpressions(fps) {
+    getFlashGateExpressions(fps) {
         const frameDuration = fps > 0 ? (1 / fps) : 0.04;
         const frameExpr = frameDuration.toFixed(6);
-        const popGain = Math.pow(10, 12 / 20).toFixed(6);
-        const pop1Gate = `if(lt(mod(t\\,2)\\,${frameExpr})\\,${popGain}\\,0)`;
-        const pop2End = (1 + frameDuration).toFixed(6);
-        const pop2Gate = `if(between(mod(t\\,2)\\,1\\,${pop2End})\\,${popGain}\\,0)`;
-        return { pop1Gate, pop2Gate };
+        const flashGain = Math.pow(10, 12 / 20).toFixed(6);
+        const flashLeadGate = `if(lt(mod(t\\,2)\\,${frameExpr})\\,${flashGain}\\,0)`;
+        const flashTailEnd = (1 + frameDuration).toFixed(6);
+        const flashTailGate = `if(between(mod(t\\,2)\\,1\\,${flashTailEnd})\\,${flashGain}\\,0)`;
+        return { flashLeadGate, flashTailGate };
     }
 
     buildConfigOverlayFilter({
@@ -603,7 +603,7 @@ class FFmpegBuilder {
         audioLevelDb,
         channelMap,
         idCycleFlags,
-        idPopFlags,
+        flashFlags,
         force400Flags,
         decklinkAudioChannels,
         overlayFontSize,
@@ -617,7 +617,7 @@ class FFmpegBuilder {
 
         const channelInfo = this.collectChannelInfo({
             channelMap,
-            idPopFlags,
+            flashFlags,
             idCycleFlags,
             force400Flags,
             limit: decklinkAudioChannels
@@ -657,10 +657,10 @@ class FFmpegBuilder {
             : '--';
         lines.push(`▌ Cycle ID: ${cycleLine}`);
 
-        const popLine = channelInfo.pop.length > 0
-            ? channelInfo.pop.join(', ')
+        const flashLine = channelInfo.flash.length > 0
+            ? channelInfo.flash.join(', ')
             : '--';
-        lines.push(`▌ Pop ID: ${popLine}`);
+        lines.push(`▌ 1-frame Flash: ${flashLine}`);
 
         const cleanedLines = lines
             .map(line => typeof line === 'string' ? line.trim() : '')
@@ -740,7 +740,7 @@ class FFmpegBuilder {
         return Math.max(margin, centered);
     }
 
-    getPopFlashYExpression(offsetPercent, boxHeightExpr) {
+    getFlashOverlayYExpression(offsetPercent, boxHeightExpr) {
         const numeric = Number(offsetPercent);
         const clamped = Number.isFinite(numeric) ? Math.max(-100, Math.min(100, numeric)) : 0;
         const base = `(ih-(${boxHeightExpr}))/2`;
@@ -752,12 +752,12 @@ class FFmpegBuilder {
         return `(${base})+(${factor}*(${base}))`;
     }
 
-    getPopFlashTextYExpression(popYOffsetExpr, boxHeightExpr) {
+    getFlashOverlayTextYExpression(overlayYOffsetExpr, boxHeightExpr) {
         const convertToTextSpace = (expr) => expr
             .replace(/\bih\b/g, 'h')
             .replace(/\biw\b/g, 'w');
 
-        const offsetExpr = convertToTextSpace(popYOffsetExpr);
+        const offsetExpr = convertToTextSpace(overlayYOffsetExpr);
         const boxHeightTextExpr = convertToTextSpace(boxHeightExpr);
         return `(${offsetExpr})+(((${boxHeightTextExpr})/2)-(text_h/2))`;
     }
@@ -789,18 +789,18 @@ class FFmpegBuilder {
 
     collectChannelInfo({
         channelMap,
-        idPopFlags,
+        flashFlags,
         idCycleFlags,
         force400Flags,
         limit
     }) {
         const baseTone = [];
-        const pop = [];
+        const flash = [];
         const cycle = [];
         const force400 = [];
 
         if (!Array.isArray(channelMap)) {
-            return { baseTone, pop, cycle, force400 };
+            return { baseTone, flash, cycle, force400 };
         }
 
         const max = Math.min(
@@ -814,12 +814,12 @@ class FFmpegBuilder {
             }
 
             const label = `Ch${i + 1}`;
-            const popFlag = Array.isArray(idPopFlags) && Boolean(idPopFlags[i]);
+            const flashFlag = Array.isArray(flashFlags) && Boolean(flashFlags[i]);
             const cycleFlag = Array.isArray(idCycleFlags) && Boolean(idCycleFlags[i]);
             const forceFlag = Array.isArray(force400Flags) && Boolean(force400Flags[i]);
 
-            if (popFlag) {
-                pop.push(label);
+            if (flashFlag) {
+                flash.push(label);
             }
             if (cycleFlag) {
                 cycle.push(label);
@@ -829,13 +829,13 @@ class FFmpegBuilder {
                 force400.push(label);
             }
 
-            const includeInBase = !popFlag && !forceFlag;
+            const includeInBase = !flashFlag && !forceFlag;
             if (includeInBase) {
                 baseTone.push(label);
             }
         }
 
-        return { baseTone, pop, cycle, force400 };
+        return { baseTone, flash, cycle, force400 };
     }
 
     escapeDrawtextText(text) {

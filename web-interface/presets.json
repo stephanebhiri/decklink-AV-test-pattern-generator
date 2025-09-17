@@ -36,16 +36,6 @@
       false,
       false
     ],
-    "audioChannelIdPop": [
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false
-    ],
     "audioChannelForce400": [
       false,
       false,
@@ -62,8 +52,18 @@
     "showConfigOverlay": false,
     "configOverlayFontSize": 18,
     "configOverlayPosition": "top-left",
-    "popFlashOffset": 0,
-    "createdAt": "2025-09-17T17:21:08.933Z"
+    "createdAt": "2025-09-17T17:21:08.933Z",
+    "audioChannelFlash": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "flashOverlayOffset": 0
   },
   "ACTUA_DEF": {
     "background": "bars",
@@ -71,7 +71,7 @@
     "text": "ACTUA PARIS",
     "textPosition": "center",
     "fontSize": 111,
-    "fontFamily": "sf_mono",
+    "fontFamily": "arial_bold",
     "textWeight": "semi",
     "textColor": "white",
     "textBackground": "black_solid",
@@ -102,16 +102,6 @@
       true,
       false
     ],
-    "audioChannelIdPop": [
-      false,
-      true,
-      false,
-      false,
-      false,
-      true,
-      false,
-      false
-    ],
     "audioChannelForce400": [
       false,
       false,
@@ -128,7 +118,17 @@
     "showConfigOverlay": true,
     "configOverlayFontSize": 30,
     "configOverlayPosition": "top-left",
-    "popFlashOffset": 31,
-    "createdAt": "2025-09-17T20:59:43.033Z"
+    "createdAt": "2025-09-17T21:02:53.906Z",
+    "audioChannelFlash": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ],
+    "flashOverlayOffset": 31
   }
 }

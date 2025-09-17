@@ -23,7 +23,7 @@
 ## Fonctionnalités Interface
 
 ### Surimpression des réglages
-- Option d'affichage en surimpression résumant les réglages vidéo/audio actifs (format, texte, niveaux, pop/cycle, etc.)
+- Option d'affichage en surimpression résumant les réglages vidéo/audio actifs (format, texte, niveaux, flash 1 image/cycle, etc.)
 
 ### 1. Texte Dynamique
 ```
