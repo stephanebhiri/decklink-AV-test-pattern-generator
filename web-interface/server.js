@@ -12,8 +12,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// Settings storage
-let savedSettings = {
+const DEFAULT_CONFIG = {
     background: 'blue',
     customBackground: null,
     text: 'ACTUA PARIS',
@@ -32,9 +31,85 @@ let savedSettings = {
     audioChannels: 2,
     audioChannelMap: [true, true, false, false, false, false, false, false],
     audioChannelIdCycle: new Array(8).fill(false),
+    audioChannelIdPop: new Array(8).fill(false),
     audioChannelForce400: new Array(8).fill(false),
-    videoFormat: '1080i50'
+    videoFormat: '1080i50',
+    showClock: false,
+    clockPosition: 'bottom-right'
 };
+
+function normalizeBooleanArray(source, length = 8, fallbackTrue = false) {
+    const normalized = Array.isArray(source)
+        ? source.slice(0, length).map(Boolean)
+        : new Array(length).fill(Boolean(fallbackTrue));
+
+    while (normalized.length < length) {
+        normalized.push(Boolean(fallbackTrue));
+    }
+
+    return normalized;
+}
+
+function sanitizeAudioChannelMap(map) {
+    const normalized = normalizeBooleanArray(map, 8, false);
+    if (!normalized.some(Boolean)) {
+        normalized[0] = true;
+        if (normalized.length > 1) {
+            normalized[1] = true;
+        }
+    }
+    return normalized;
+}
+
+function sanitizeConfig(config = {}) {
+    const merged = { ...DEFAULT_CONFIG, ...config };
+
+    merged.audioChannelMap = sanitizeAudioChannelMap(merged.audioChannelMap);
+    merged.audioChannelIdCycle = normalizeBooleanArray(merged.audioChannelIdCycle, 8, false);
+    merged.audioChannelIdPop = normalizeBooleanArray(merged.audioChannelIdPop, 8, false);
+    merged.audioChannelForce400 = normalizeBooleanArray(merged.audioChannelForce400, 8, false);
+
+    merged.audioChannels = Math.max(1, merged.audioChannelMap.filter(Boolean).length);
+
+    const allowedFonts = new Set(['sf_mono', 'arial_bold', 'arial_black', 'impact']);
+    if (!allowedFonts.has(merged.fontFamily)) {
+        merged.fontFamily = DEFAULT_CONFIG.fontFamily;
+    }
+
+    const allowedWeights = new Set(['normal', 'semi', 'heavy']);
+    if (!allowedWeights.has(merged.textWeight)) {
+        merged.textWeight = DEFAULT_CONFIG.textWeight;
+    }
+
+    const allowedBackgrounds = new Set(['none', 'black_solid', 'black_soft', 'white_soft', 'yellow_soft', 'blue_soft']);
+    if (!allowedBackgrounds.has(merged.textBackground)) {
+        merged.textBackground = DEFAULT_CONFIG.textBackground;
+    }
+
+    if (typeof merged.fontSize !== 'number' || Number.isNaN(merged.fontSize)) {
+        merged.fontSize = DEFAULT_CONFIG.fontSize;
+    }
+
+    if (!merged.text || typeof merged.text !== 'string') {
+        merged.text = DEFAULT_CONFIG.text;
+    }
+
+    if (!merged.textColor || typeof merged.textColor !== 'string') {
+        merged.textColor = DEFAULT_CONFIG.textColor;
+    }
+
+    if (!merged.clockPosition) {
+        merged.clockPosition = DEFAULT_CONFIG.clockPosition;
+    }
+
+    merged.showClock = Boolean(merged.showClock);
+    merged.showLogo = merged.showLogo !== false;
+
+    return merged;
+}
+
+// Settings storage
+let savedSettings = sanitizeConfig(DEFAULT_CONFIG);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -104,7 +179,16 @@ function loadPresets() {
     try {
         if (fs.existsSync(presetsFile)) {
             const data = fs.readFileSync(presetsFile, 'utf8');
-            savedPresets = JSON.parse(data);
+            const parsed = JSON.parse(data);
+            savedPresets = Object.keys(parsed).reduce((acc, key) => {
+                const preset = parsed[key] || {};
+                const { createdAt, ...rest } = preset;
+                acc[key] = {
+                    ...sanitizeConfig(rest),
+                    createdAt: createdAt || new Date().toISOString()
+                };
+                return acc;
+            }, {});
         }
     } catch (error) {
         console.error('Error loading presets:', error);
@@ -132,7 +216,8 @@ const ffmpegBuilder = new FFmpegBuilder();
 
 function startFFmpegProcess(config, socket, options = {}) {
     try {
-        const command = ffmpegBuilder.buildCommand(config);
+        const cleanConfig = sanitizeConfig(config);
+        const command = ffmpegBuilder.buildCommand(cleanConfig);
         console.log('FFmpeg command:', command.join(' '));
 
         pendingCloseReason = null;
@@ -247,7 +332,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-    savedSettings = { ...savedSettings, ...req.body };
+    savedSettings = sanitizeConfig({ ...savedSettings, ...req.body });
     res.json({ success: true, settings: savedSettings });
 });
 
@@ -262,8 +347,10 @@ app.post('/api/presets', (req, res) => {
         return res.status(400).json({ error: 'Name and config are required' });
     }
 
+    const cleanConfig = sanitizeConfig(config);
+
     savedPresets[name] = {
-        ...config,
+        ...cleanConfig,
         createdAt: new Date().toISOString()
     };
     savePresets();
@@ -356,7 +443,7 @@ app.get('/api/uploaded-backgrounds', (req, res) => {
 });
 
 app.post('/api/preview', (req, res) => {
-    const config = req.body;
+    const config = sanitizeConfig(req.body);
     const command = ffmpegBuilder.buildCommand(config);
     res.json({
         success: true,
@@ -370,7 +457,8 @@ io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
     socket.on('start-broadcast', (config) => {
-        console.log('Starting broadcast with config:', config);
+        const cleanConfig = sanitizeConfig(config);
+        console.log('Starting broadcast with config:', cleanConfig);
 
         if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
             console.log('FFmpeg is already running, rejecting new request');
@@ -379,7 +467,7 @@ io.on('connection', (socket) => {
         }
 
         pendingRestart = null;
-        startFFmpegProcess(config, socket);
+        startFFmpegProcess(cleanConfig, socket);
     });
 
     socket.on('stop-broadcast', () => {
@@ -423,15 +511,16 @@ io.on('connection', (socket) => {
     });
 
     socket.on('apply-broadcast-settings', (config) => {
+        const cleanConfig = sanitizeConfig(config);
         console.log('Applying new broadcast settings');
 
         if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
-            pendingRestart = { config, socket };
+            pendingRestart = { config: cleanConfig, socket };
             pendingCloseReason = 'restart';
             currentFFmpegProcess.kill('SIGTERM');
         } else {
             pendingRestart = null;
-            startFFmpegProcess(config, socket);
+            startFFmpegProcess(cleanConfig, socket);
         }
     });
 

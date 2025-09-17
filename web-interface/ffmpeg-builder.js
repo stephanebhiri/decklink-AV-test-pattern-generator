@@ -37,6 +37,7 @@ class FFmpegBuilder {
             audioChannels = 2,
             audioChannelMap = null,
             audioChannelIdCycle = [],
+            audioChannelIdPop = [],
             audioChannelForce400 = [],
             animation = null,
             videoFormat = '1080i50',
@@ -98,11 +99,13 @@ class FFmpegBuilder {
         const clampedToneFrequency = Math.max(20, Math.min(20000, toneFrequency));
         const channelMap = this.resolveAudioChannelMap(audioChannelMap, audioChannels);
         const idCycleFlags = this.normalizeChannelOption(audioChannelIdCycle);
+        const idPopFlags = this.normalizeChannelOption(audioChannelIdPop);
         const force400Flags = this.normalizeChannelOption(audioChannelForce400);
         const requiresExtendedLayout = channelMap.some((isActive, index) => isActive && index >= 2);
         const decklinkAudioChannels = requiresExtendedLayout ? 8 : 2;
         const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
-        const idCycleExpr = this.getIdCycleExpression(fps);
+        const cycleExpr = this.getCycleEnvelope();
+        const popExpr = this.getIdPopExpression(fps);
         const silentExpr = '(0.000001)';
         const channelExprs = channelMap
             .slice(0, decklinkAudioChannels)
@@ -115,7 +118,11 @@ class FFmpegBuilder {
                 let expr = `sin(2*PI*${channelFreq}*t)`;
 
                 if (idCycleFlags[idx]) {
-                    expr = `(${expr}*${idCycleExpr})`;
+                    expr = `(${expr}*${cycleExpr})`;
+                }
+
+                if (idPopFlags[idx]) {
+                    expr = `(${expr}*${popExpr})`;
                 }
 
                 return expr;
@@ -200,7 +207,7 @@ class FFmpegBuilder {
             });
         }
 
-        const needsIdFlash = idCycleFlags.some(Boolean);
+        const needsIdFlash = idPopFlags.some(Boolean);
         if (needsIdFlash) {
             const frameDuration = fps > 0 ? (1 / fps) : 0.04;
             const frameExpr = frameDuration.toFixed(6);
@@ -469,13 +476,15 @@ class FFmpegBuilder {
         return normalized;
     }
 
-    getIdCycleExpression(fps) {
+    getCycleEnvelope() {
+        return 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
+    }
+
+    getIdPopExpression(fps) {
         const frameDuration = fps > 0 ? (1 / fps) : 0.04;
         const frameExpr = frameDuration.toFixed(6);
         const popGain = Math.pow(10, 12 / 20).toFixed(6);
-        const envelope = 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
-        const pop = `if(lt(mod(t\\,1)\\,${frameExpr})\\,${popGain}\\,1)`;
-        return `(${envelope}*${pop})`;
+        return `if(lt(mod(t\\,1)\\,${frameExpr})\\,${popGain}\\,1)`;
     }
 
     getFontDirective(fontFamily) {
