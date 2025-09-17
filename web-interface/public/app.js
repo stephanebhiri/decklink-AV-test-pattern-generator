@@ -263,6 +263,9 @@ class BroadcastController {
 
             if (running) {
                 this.updateStatus('Broadcast running...', 'running');
+                if (state && state.config) {
+                    this.applyConfig(state.config, { skipSave: true, skipPreview: true, markClean: true });
+                }
             } else {
                 this.updateStatus('Ready to broadcast', 'ready');
             }
@@ -914,7 +917,9 @@ class BroadcastController {
         }
     }
 
-    applyConfig(config) {
+    applyConfig(config, options = {}) {
+        const { skipSave = false, skipPreview = false, markClean = false } = options;
+
         // Apply background
         if (config.background) {
             this.backgroundSelect.value = config.background;
@@ -999,9 +1004,21 @@ class BroadcastController {
 
         // Update UI
         this.updateLogoPreview();
-        this.previewCommand();
-        this.saveSettings();
-        this.handleConfigChange();
+
+        if (!skipPreview) {
+            this.previewCommand();
+        }
+
+        if (!skipSave) {
+            this.saveSettings();
+        }
+
+        if (markClean) {
+            this.hasPendingChanges = false;
+            this.updateControls();
+        } else {
+            this.handleConfigChange();
+        }
     }
 
     createClockPositions() {
