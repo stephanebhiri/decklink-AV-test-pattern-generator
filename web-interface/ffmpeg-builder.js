@@ -72,7 +72,8 @@ class FFmpegBuilder {
             clockPosition = 'bottom-right',
             showConfigOverlay = false,
             configOverlayFontSize = null,
-            configOverlayPosition = 'top-left'
+            configOverlayPosition = 'top-left',
+            popFlashOffset = 0
         } = config;
 
         // Calculate text position based on 9-grid system
@@ -240,8 +241,7 @@ class FFmpegBuilder {
                 }
             });
         }
-
-const popOverlayFilters = [];
+        const popOverlayFilters = [];
         if (idPopFlags.some(Boolean)) {
             const frameDuration = fps > 0 ? (1 / fps) : 0.04;
             const frameExpr = frameDuration.toFixed(6);
@@ -251,20 +251,20 @@ const popOverlayFilters = [];
             const popBoxWidth = 'iw*0.15';
             const popBoxHeight = 'ih*0.15';
             const popTextSize = Math.max(32, Math.round(height * 0.08));
-            const escapedFontPath = this.fontPath.replace(/'/g, "\\'");
+            const escapedFontPath = this.fontPath.replace(/'/g, "\'");
+            const popYOffset = this.getPopFlashYExpression(popFlashOffset, popBoxHeight);
             const overlays = [
                 { enable: pop1Enable, boxColor: 'white@0.9', text: '1KHz', textColor: 'black' },
                 { enable: pop2Enable, boxColor: 'black@0.9', text: '400Hz', textColor: 'white' }
             ];
 
             overlays.forEach(({ enable, boxColor, text, textColor }) => {
-                const boxFilter = `drawbox=x=(iw-${popBoxWidth})/2:y=(ih-${popBoxHeight})/2:w=${popBoxWidth}:h=${popBoxHeight}:color=${boxColor}:t=fill:enable='${enable}'`;
-                const textFilter = `drawtext=text='${text}':fontfile='${escapedFontPath}':fontsize=${popTextSize}:fontcolor=${textColor}:x=(w-text_w)/2:y=(h-text_h)/2:enable='${enable}'`;
+                const boxFilter = `drawbox=x=(iw-${popBoxWidth})/2:y='${popYOffset}':w=${popBoxWidth}:h=${popBoxHeight}:color=${boxColor}:t=fill:enable='${enable}'`;
+                const textFilter = `drawtext=text='${text}':fontfile='${escapedFontPath}':fontsize=${popTextSize}:fontcolor=${textColor}:x=(w-text_w)/2:y='${this.getPopFlashTextYExpression(popYOffset, popBoxHeight)}':enable='${enable}'`;
                 popOverlayFilters.push(boxFilter, textFilter);
             });
         }
 
-        // Add animation
         if (animation === 'square') {
             filterComplex.push(`${currentOutput}[1:v]overlay=x='t*25':y=490[anim${filterIndex}]`);
             currentOutput = `[anim${filterIndex}]`;
@@ -728,6 +728,22 @@ const popOverlayFilters = [];
 
         const centered = Math.round((frameHeight - totalHeight) / 2);
         return Math.max(margin, centered);
+    }
+
+    getPopFlashYExpression(offsetPercent, boxHeightExpr) {
+        const numeric = Number(offsetPercent);
+        const clamped = Number.isFinite(numeric) ? Math.max(-100, Math.min(100, numeric)) : 0;
+        const base = `(ih-(${boxHeightExpr}))/2`;
+        if (clamped === 0) {
+            return base;
+        }
+
+        const factor = (clamped / 100).toFixed(4);
+        return `(${base})+(${factor}*(${base}))`;
+    }
+
+    getPopFlashTextYExpression(popYOffsetExpr, boxHeightExpr) {
+        return `(${popYOffsetExpr})+(((${boxHeightExpr})/2)-(text_h/2))`;
     }
 
     formatDbLabel(dbValue) {

@@ -38,7 +38,8 @@ const DEFAULT_CONFIG = {
     clockPosition: 'bottom-right',
     showConfigOverlay: false,
     configOverlayFontSize: null,
-    configOverlayPosition: 'top-left'
+    configOverlayPosition: 'top-left',
+    popFlashOffset: 0
 };
 
 const DEFAULT_PRESETS = {
@@ -146,6 +147,13 @@ function sanitizeConfig(config = {}) {
         merged.configOverlayFontSize = clamped;
     } else {
         merged.configOverlayFontSize = null;
+    }
+
+    const popOffset = Number(merged.popFlashOffset);
+    if (Number.isFinite(popOffset)) {
+        merged.popFlashOffset = Math.max(-100, Math.min(100, Math.round(popOffset)));
+    } else {
+        merged.popFlashOffset = DEFAULT_CONFIG.popFlashOffset;
     }
 
     const allowedOverlayPositions = new Set([

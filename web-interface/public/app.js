@@ -58,6 +58,8 @@ class BroadcastController {
         this.audioChannelForce400Toggles = [];
         this.audioChannelIdPopToggles = [];
         this.pendingAudioChannelOptions = null;
+        this.popFlashOffsetSlider = document.getElementById('popFlashOffset');
+        this.popFlashOffsetValue = document.getElementById('popFlashOffsetValue');
 
         // Action buttons
         this.previewBtn = document.getElementById('previewBtn');
@@ -103,6 +105,12 @@ class BroadcastController {
         if (this.overlayFontSizeSlider) {
             this.overlayFontSizeSlider.addEventListener('input', () => {
                 this.overlayFontSizeValue.textContent = this.overlayFontSizeSlider.value + 'px';
+            });
+        }
+
+        if (this.popFlashOffsetSlider) {
+            this.popFlashOffsetSlider.addEventListener('input', () => {
+                this.popFlashOffsetValue.textContent = this.popFlashOffsetSlider.value + '%';
             });
         }
 
@@ -160,6 +168,9 @@ class BroadcastController {
             this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect,
             this.overlayPositionSelect, this.overlayFontSizeSlider
         ];
+        if (this.popFlashOffsetSlider) {
+            autoPreviewElements.push(this.popFlashOffsetSlider);
+        }
         if (this.showConfigOverlayCheckbox) {
             autoPreviewElements.push(this.showConfigOverlayCheckbox);
         }
@@ -270,6 +281,9 @@ class BroadcastController {
         if (this.overlayFontSizeSlider && this.overlayFontSizeValue) {
             this.overlayFontSizeValue.textContent = this.overlayFontSizeSlider.value + 'px';
         }
+        if (this.popFlashOffsetSlider && this.popFlashOffsetValue) {
+            this.popFlashOffsetValue.textContent = this.popFlashOffsetSlider.value + '%';
+        }
         this.syncTonePresetHighlight();
     }
 
@@ -344,7 +358,8 @@ class BroadcastController {
             clockPosition: this.selectedClockPosition,
             showConfigOverlay: this.showConfigOverlayCheckbox ? this.showConfigOverlayCheckbox.checked : false,
             configOverlayFontSize: this.overlayFontSizeSlider ? parseInt(this.overlayFontSizeSlider.value, 10) : null,
-            configOverlayPosition: this.overlayPositionSelect ? this.overlayPositionSelect.value : 'top-left'
+            configOverlayPosition: this.overlayPositionSelect ? this.overlayPositionSelect.value : 'top-left',
+            popFlashOffset: this.popFlashOffsetSlider ? parseInt(this.popFlashOffsetSlider.value, 10) : 0
         };
     }
 
@@ -966,6 +981,12 @@ class BroadcastController {
         if (this.overlayPositionSelect && config.configOverlayPosition) {
             this.overlayPositionSelect.value = config.configOverlayPosition;
         }
+        if (this.popFlashOffsetSlider && config.popFlashOffset !== undefined) {
+            const popOffset = Number(config.popFlashOffset);
+            if (Number.isFinite(popOffset)) {
+                this.popFlashOffsetSlider.value = popOffset;
+            }
+        }
         this.updateOverlayControlsState();
         this.updateRangeValues();
 
@@ -1210,6 +1231,11 @@ class BroadcastController {
             }
             if (this.overlayPositionSelect) {
                 this.overlayPositionSelect.value = settings.configOverlayPosition || 'top-left';
+            }
+            if (this.popFlashOffsetSlider) {
+                const popOffset = Number(settings.popFlashOffset);
+                const offsetValue = Number.isFinite(popOffset) ? popOffset : 0;
+                this.popFlashOffsetSlider.value = offsetValue;
             }
 
             // Update range value displays
