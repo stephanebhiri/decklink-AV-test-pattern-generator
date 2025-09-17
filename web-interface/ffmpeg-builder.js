@@ -355,8 +355,8 @@ class FFmpegBuilder {
 
         // For interlaced formats, add proper interlacing filters
         if (videoFormat.includes('i')) {
-            // Add fps=50,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff for optimal interlacing
-            filterComplex.push(`${currentOutput}fps=50,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff[v]`);
+            // Add fps=field_rate,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff for optimal interlacing
+            filterComplex.push(`${currentOutput}fps=${fps},setsar=1/1,tinterlace=mode=interleave_top,setfield=tff[v]`);
         } else {
             // Rename final output to [v]
             if (currentOutput !== '[0:v]') {
@@ -495,6 +495,11 @@ class FFmpegBuilder {
             '1080i50': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25', '-field_order', 'tt',
                 '-f', 'decklink', '-format_code', 'Hi50', '-raw_format', 'uyvy422',
+                'UltraStudio Mini Monitor'
+            ],
+            '1080i60': [
+                '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '30', '-field_order', 'tt',
+                '-f', 'decklink', '-format_code', 'Hi60', '-raw_format', 'uyvy422',
                 'UltraStudio Mini Monitor'
             ],
             '1080p25': [
@@ -938,6 +943,7 @@ class FFmpegBuilder {
     getVideoFormats() {
         return [
             { id: '1080i50', name: '1080i50 (1920x1080 interlaced)' },
+            { id: '1080i60', name: '1080i60 (1920x1080 interlaced)' },
             { id: '1080p25', name: '1080p25 (1920x1080 progressive)' },
             { id: '1080p30', name: '1080p30 (1920x1080 progressive)' },
             { id: '720p50', name: '720p50 (1280x720 progressive)' },
@@ -964,6 +970,7 @@ class FFmpegBuilder {
     getResolution(format) {
         const resolutions = {
             '1080i50': { width: 1920, height: 1080 },
+            '1080i60': { width: 1920, height: 1080 },
             '1080p25': { width: 1920, height: 1080 },
             '1080p30': { width: 1920, height: 1080 },
             '720p50': { width: 1280, height: 720 },
@@ -976,9 +983,10 @@ class FFmpegBuilder {
 
     getFrameRate(format) {
         // Extract the frame rate from the format string
-        // For interlaced formats, we use 50fps to generate all fields
+        // For interlaced formats, we generate at field rate (50/60) before tinterlace combines them
         const frameRates = {
             '1080i50': 50,  // Generate at 50fps, will be interlaced to 25fps
+            '1080i60': 60,  // Generate at 60fps, will be interlaced to 30fps
             '1080p25': 25,
             '1080p30': 30,
             '720p50': 50,
