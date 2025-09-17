@@ -126,18 +126,18 @@ class FFmpegBuilder {
         if (showClock) {
             const clockPos = this.getClockPosition(clockPosition);
             const startEpochMs = Date.now();
-            const baseMs = startEpochMs % 1000;
             const baseSeconds = Math.floor(startEpochMs / 1000);
             const totalSecondsExpr = `(${baseSeconds}+t)`; // runtime seconds since epoch
-            const totalMillisExpr = `(${baseMs}+t*1000)`;   // runtime milliseconds within current second
 
             const hoursExpr = `%{eif\\:floor(${totalSecondsExpr}/3600)-24*floor(${totalSecondsExpr}/86400)\\:d\\:02}`;
             const minutesExpr = `%{eif\\:floor(${totalSecondsExpr}/60)-60*floor(${totalSecondsExpr}/3600)\\:d\\:02}`;
             const secondsExpr = `%{eif\\:floor(${totalSecondsExpr})-60*floor(${totalSecondsExpr}/60)\\:d\\:02}`;
-            const millisecondsExpr = `%{eif\\:floor(${totalMillisExpr})-1000*floor(${totalMillisExpr}/1000)\\:d\\:03}`;
 
-            // Overlay real-time GMT clock with millisecond precision
-            const clockFilter = `drawtext=text='GMT ${hoursExpr}\\:${minutesExpr}\\:${secondsExpr}.${millisecondsExpr}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
+            const displayFps = videoFormat.includes('i') ? Math.max(1, Math.round(fps / 2)) : fps;
+            const frameExpr = `%{eif\\:mod(n\\,${displayFps})\\:d\\:02}`;
+
+            // Overlay real-time GMT clock with frame count instead of milliseconds
+            const clockFilter = `drawtext=text='GMT ${hoursExpr}\\:${minutesExpr}\\:${secondsExpr}\\:${frameExpr}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
 
             filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
             currentOutput = `[clock${filterIndex}]`;
