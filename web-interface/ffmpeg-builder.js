@@ -102,7 +102,7 @@ class FFmpegBuilder {
         const requiresExtendedLayout = channelMap.some((isActive, index) => isActive && index >= 2);
         const decklinkAudioChannels = requiresExtendedLayout ? 8 : 2;
         const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
-        const idCycleExpr = this.getIdCycleExpression();
+        const idCycleExpr = this.getIdCycleExpression(fps);
         const silentExpr = '(0.000001)';
         const channelExprs = channelMap
             .slice(0, decklinkAudioChannels)
@@ -198,6 +198,16 @@ class FFmpegBuilder {
                     filterIndex++;
                 }
             });
+        }
+
+        const needsIdFlash = idCycleFlags.some(Boolean);
+        if (needsIdFlash) {
+            const frameDuration = fps > 0 ? (1 / fps) : 0.04;
+            const frameExpr = frameDuration.toFixed(6);
+            const flashEnable = `lt(mod(t\\,1)\\,${frameExpr})`;
+            filterComplex.push(`${currentOutput}drawbox=x=(w-w*0.15)/2:y=(h-h*0.15)/2:w=w*0.15:h=h*0.15:color=white@0.9:t=fill:enable='${flashEnable}'[flash${filterIndex}]`);
+            currentOutput = `[flash${filterIndex}]`;
+            filterIndex++;
         }
 
         // Add animation
@@ -459,8 +469,13 @@ class FFmpegBuilder {
         return normalized;
     }
 
-    getIdCycleExpression() {
-        return 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
+    getIdCycleExpression(fps) {
+        const frameDuration = fps > 0 ? (1 / fps) : 0.04;
+        const frameExpr = frameDuration.toFixed(6);
+        const popGain = Math.pow(10, 12 / 20).toFixed(6);
+        const envelope = 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
+        const pop = `if(lt(mod(t\\,1)\\,${frameExpr})\\,${popGain}\\,1)`;
+        return `(${envelope}*${pop})`;
     }
 
     getFontDirective(fontFamily) {
