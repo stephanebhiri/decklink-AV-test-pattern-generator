@@ -125,12 +125,19 @@ class FFmpegBuilder {
         // Add clock
         if (showClock) {
             const clockPos = this.getClockPosition(clockPosition);
+            const startEpochMs = Date.now();
+            const baseMs = startEpochMs % 1000;
+            const baseSeconds = Math.floor(startEpochMs / 1000);
+            const totalSecondsExpr = `(${baseSeconds}+t)`; // runtime seconds since epoch
+            const totalMillisExpr = `(${baseMs}+t*1000)`;   // runtime milliseconds within current second
 
-            // For all formats, use the actual frame counter
-            // Interlaced formats at 50fps will show 0-49 naturally
-            // Timecode display with seconds and frames
-            // n/25 gives us total seconds, mod 60 gives seconds within minute
-            const clockFilter = `drawtext=text='TC\\: %{eif\\:n/25/60\\:d\\:02}\\\\:%{eif\\:mod(n/25\\,60)\\:d\\:02}\\\\:%{eif\\:mod(n\\,25)\\:d\\:02}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
+            const hoursExpr = `%{eif\\:floor(${totalSecondsExpr}/3600)-24*floor(${totalSecondsExpr}/86400)\\:d\\:02}`;
+            const minutesExpr = `%{eif\\:floor(${totalSecondsExpr}/60)-60*floor(${totalSecondsExpr}/3600)\\:d\\:02}`;
+            const secondsExpr = `%{eif\\:floor(${totalSecondsExpr})-60*floor(${totalSecondsExpr}/60)\\:d\\:02}`;
+            const millisecondsExpr = `%{eif\\:floor(${totalMillisExpr})-1000*floor(${totalMillisExpr}/1000)\\:d\\:03}`;
+
+            // Overlay real-time GMT clock with millisecond precision
+            const clockFilter = `drawtext=text='GMT ${hoursExpr}\\:${minutesExpr}\\:${secondsExpr}.${millisecondsExpr}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
 
             filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
             currentOutput = `[clock${filterIndex}]`;
