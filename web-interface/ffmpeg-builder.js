@@ -1,5 +1,6 @@
 // FFmpeg Command Builder for ACTUA Broadcast Generator
 const path = require('path');
+const fs = require('fs');
 
 class FFmpegBuilder {
     constructor() {
@@ -9,6 +10,12 @@ class FFmpegBuilder {
         this.barsPath = path.join(this.picturesPath, 'bars.png');
         this.resolutionTestPath = path.join(this.picturesPath, 'resolution_test.png');
         this.fontPath = '/System/Library/Fonts/SFNSMono.ttf';
+        this.fontOptions = {
+            sf_mono: { type: 'fontfile', value: this.fontPath },
+            arial_bold: { type: 'font', value: 'Arial-BoldMT' },
+            arial_black: { type: 'font', value: 'Arial-Black' },
+            impact: { type: 'font', value: 'Impact' }
+        };
     }
 
     buildCommand(config) {
@@ -17,7 +24,10 @@ class FFmpegBuilder {
             customBackground = null,
             text = 'ACTUA PARIS',
             fontSize = 80,
+            fontFamily = 'sf_mono',
+            textWeight = 'normal',
             textColor = 'white',
+            textBackground = 'none',
             textPosition = 'center',
             showLogo = true,
             logoFile = null,
@@ -161,7 +171,28 @@ class FFmpegBuilder {
                         }
                     }
 
-                    const textFilter = `drawtext=text='${escapedLine}':fontfile='${this.fontPath}':fontsize=${fontSize}:fontcolor=${textColor}:x=${textPos.x}:y=${yPos}`;
+                    const fontDirective = this.getFontDirective(fontFamily);
+                    const borderDirective = this.getTextBorderDirective(textWeight, textColor);
+                    const boxDirective = this.getTextBoxDirective(textBackground, fontSize);
+                    const drawtextParts = [
+                        `drawtext=text='${escapedLine}'`,
+                        fontDirective,
+                        `fontsize=${fontSize}`,
+                        `fontcolor=${textColor}`
+                    ];
+
+                    if (borderDirective) {
+                        drawtextParts.push(borderDirective);
+                    }
+
+                    if (boxDirective) {
+                        drawtextParts.push(boxDirective);
+                    }
+
+                    drawtextParts.push(`x=${textPos.x}`);
+                    drawtextParts.push(`y=${yPos}`);
+
+                    const textFilter = drawtextParts.filter(Boolean).join(':');
                     filterComplex.push(`${currentOutput}${textFilter}[txt${filterIndex}]`);
                     currentOutput = `[txt${filterIndex}]`;
                     filterIndex++;
@@ -430,6 +461,64 @@ class FFmpegBuilder {
 
     getIdCycleExpression() {
         return 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
+    }
+
+    getFontDirective(fontFamily) {
+        const option = this.fontOptions[fontFamily] || this.fontOptions.sf_mono;
+        if (option && option.type === 'fontfile' && option.value) {
+            const fontPath = this.resolveFontPath(option.value);
+            if (fontPath) {
+                const escaped = fontPath.replace(/'/g, "\\'");
+                return `fontfile='${escaped}'`;
+            }
+        }
+
+        if (option && option.type === 'font' && option.value) {
+            return `font=${option.value}`;
+        }
+
+        const escapedDefault = this.fontPath.replace(/'/g, "\\'");
+        return `fontfile='${escapedDefault}'`;
+    }
+
+    resolveFontPath(targetPath) {
+        try {
+            if (fs.existsSync(targetPath)) {
+                return targetPath;
+            }
+        } catch (error) {
+            console.warn('Font path check failed:', error);
+        }
+        return null;
+    }
+
+    getTextBorderDirective(weight, textColor) {
+        switch (weight) {
+            case 'semi':
+                return `borderw=2:bordercolor=${textColor}`;
+            case 'heavy':
+                return `borderw=4:bordercolor=${textColor}`;
+            default:
+                return 'borderw=0';
+        }
+    }
+
+    getTextBoxDirective(style, fontSize) {
+        const border = Math.max(4, Math.round(fontSize * 0.15));
+        switch (style) {
+            case 'black_solid':
+                return `box=1:boxcolor=black@1:boxborderw=${border}`;
+            case 'black_soft':
+                return `box=1:boxcolor=black@0.6:boxborderw=${border}`;
+            case 'white_soft':
+                return `box=1:boxcolor=white@0.6:boxborderw=${border}`;
+            case 'yellow_soft':
+                return `box=1:boxcolor=yellow@0.6:boxborderw=${border}`;
+            case 'blue_soft':
+                return `box=1:boxcolor=blue@0.5:boxborderw=${border}`;
+            default:
+                return null;
+        }
     }
 
     resolveAudioVolume(levelDb) {

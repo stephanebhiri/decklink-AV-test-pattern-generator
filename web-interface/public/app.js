@@ -29,7 +29,10 @@ class BroadcastController {
         this.textPositionSelect = document.getElementById('textPosition');
         this.fontSizeSlider = document.getElementById('fontSize');
         this.fontSizeValue = document.getElementById('fontSizeValue');
+        this.fontFamilySelect = document.getElementById('fontFamily');
+        this.textWeightSelect = document.getElementById('textWeight');
         this.textColorSelect = document.getElementById('textColor');
+        this.textBackgroundSelect = document.getElementById('textBackground');
         this.showLogoCheckbox = document.getElementById('showLogo');
         this.logoFileInput = document.getElementById('logoFile');
         this.uploadLogoBtn = document.getElementById('uploadLogoBtn');
@@ -136,7 +139,8 @@ class BroadcastController {
         // Auto-preview on change
         const autoPreviewElements = [
             this.backgroundSelect, this.textInput, this.textPositionSelect, this.fontSizeSlider,
-            this.textColorSelect, this.showLogoCheckbox, this.logoSelect, this.logoPosition, this.animationSelect,
+            this.fontFamilySelect, this.textWeightSelect, this.textColorSelect, this.textBackgroundSelect,
+            this.showLogoCheckbox, this.logoSelect, this.logoPosition, this.animationSelect,
             this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect
         ];
         if (this.customBackgroundSelect) {
@@ -250,7 +254,10 @@ class BroadcastController {
             text: this.textInput.value,
             textPosition: this.textPositionSelect.value,
             fontSize: parseInt(this.fontSizeSlider.value),
+            fontFamily: this.fontFamilySelect ? this.fontFamilySelect.value : 'sf_mono',
+            textWeight: this.textWeightSelect ? this.textWeightSelect.value : 'normal',
             textColor: this.textColorSelect.value,
+            textBackground: this.textBackgroundSelect ? this.textBackgroundSelect.value : 'none',
             showLogo: this.showLogoCheckbox.checked,
             logoFile: this.logoSelect.value || null,
             logoPosition: this.logoPosition.value,
@@ -807,7 +814,10 @@ class BroadcastController {
             this.fontSizeSlider.value = config.fontSize;
             this.fontSizeValue.textContent = config.fontSize + 'px';
         }
+        if (config.fontFamily && this.fontFamilySelect) this.fontFamilySelect.value = config.fontFamily;
+        if (config.textWeight && this.textWeightSelect) this.textWeightSelect.value = config.textWeight;
         if (config.textColor) this.textColorSelect.value = config.textColor;
+        if (config.textBackground && this.textBackgroundSelect) this.textBackgroundSelect.value = config.textBackground;
 
         // Apply logo
         if (config.showLogo !== undefined) this.showLogoCheckbox.checked = config.showLogo;
@@ -1004,7 +1014,16 @@ class BroadcastController {
             this.textInput.value = settings.text || 'ACTUA PARIS';
             this.textPositionSelect.value = settings.textPosition || 'center';
             this.fontSizeSlider.value = settings.fontSize || 80;
+            if (this.fontFamilySelect) {
+                this.fontFamilySelect.value = settings.fontFamily || 'sf_mono';
+            }
+            if (this.textWeightSelect) {
+                this.textWeightSelect.value = settings.textWeight || 'normal';
+            }
             this.textColorSelect.value = settings.textColor || 'white';
+            if (this.textBackgroundSelect) {
+                this.textBackgroundSelect.value = settings.textBackground || 'none';
+            }
             this.showLogoCheckbox.checked = settings.showLogo !== false;
             this.logoSelect.value = settings.logoFile || '';
             this.logoPosition.value = settings.logoPosition || 'top-right';
