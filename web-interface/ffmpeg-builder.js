@@ -138,34 +138,44 @@ class FFmpegBuilder {
         const cycleExpr = this.getCycleEnvelope();
         const { pop1Gate, pop2Gate } = this.getPopGateExpressions(fps);
         const silentExpr = '(0.000001)';
-        const channelExprs = channelMap
-            .slice(0, decklinkAudioChannels)
-            .map((isActive, idx) => {
-                if (!isActive) {
-                    return silentExpr;
-                }
+        const channelExprList = [];
+        for (let idx = 0; idx < decklinkAudioChannels; idx++) {
+            const isActive = Boolean(channelMap[idx]);
 
-                const channelFreq = force400Flags[idx] ? 400 : clampedToneFrequency;
-                let expr = `sin(2*PI*${channelFreq}*t)`;
+            if (!isActive) {
+                channelExprList.push(silentExpr);
+                continue;
+            }
 
-                if (idCycleFlags[idx]) {
-                    expr = `(${expr}*${cycleExpr})`;
-                }
+            const channelFreq = force400Flags[idx] ? 400 : clampedToneFrequency;
+            let expr = `sin(2*PI*${channelFreq}*t)`;
 
-                if (idPopFlags[idx]) {
-                    const popTerms = [
-                        `(sin(2*PI*1000*t)*${pop1Gate})`,
-                        `(sin(2*PI*400*t)*${pop2Gate})`
-                    ];
-                    const combinedPop = popTerms.join('+');
-                    expr = idCycleFlags[idx]
-                        ? `(${expr})+${combinedPop}`
-                        : combinedPop;
-                }
+            const cycleEnabled = Boolean(idCycleFlags[idx]);
+            const popEnabled = Boolean(idPopFlags[idx]);
 
-                return expr;
-            })
-            .join('|');
+            if (cycleEnabled) {
+                expr = `(${expr}*${cycleExpr})`;
+            }
+
+            if (popEnabled) {
+                const popTerms = [
+                    `(sin(2*PI*1000*t)*${pop1Gate})`,
+                    `(sin(2*PI*400*t)*${pop2Gate})`
+                ];
+                const combinedPop = popTerms.join('+');
+                expr = cycleEnabled
+                    ? `(${expr})+${combinedPop}`
+                    : combinedPop;
+            }
+
+            channelExprList.push(expr);
+        }
+
+        while (channelExprList.length < decklinkAudioChannels) {
+            channelExprList.push(silentExpr);
+        }
+
+        const channelExprs = channelExprList.join('|');
         cmd.push('-f', 'lavfi', '-i', `aevalsrc=exprs=${channelExprs}:sample_rate=48000:channel_layout=${audioLayout}`);
 
         // Build filter chain
@@ -743,7 +753,13 @@ class FFmpegBuilder {
     }
 
     getPopFlashTextYExpression(popYOffsetExpr, boxHeightExpr) {
-        return `(${popYOffsetExpr})+(((${boxHeightExpr})/2)-(text_h/2))`;
+        const convertToTextSpace = (expr) => expr
+            .replace(/\bih\b/g, 'h')
+            .replace(/\biw\b/g, 'w');
+
+        const offsetExpr = convertToTextSpace(popYOffsetExpr);
+        const boxHeightTextExpr = convertToTextSpace(boxHeightExpr);
+        return `(${offsetExpr})+(((${boxHeightTextExpr})/2)-(text_h/2))`;
     }
 
     formatDbLabel(dbValue) {
