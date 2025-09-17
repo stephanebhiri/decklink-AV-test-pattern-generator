@@ -190,6 +190,29 @@
                 </div>
             </section>
 
+            <!-- Overlay Section -->
+            <section class="control-section">
+                <h3>ℹ️ Overlay</h3>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showConfigOverlay">
+                        Show settings overlay
+                    </label>
+                    <div class="control-hint">Displays active video/audio parameters on-screen.</div>
+                </div>
+                <div class="control-group">
+                    <label for="overlayFontSize">Overlay font size:</label>
+                    <div class="range-row">
+                        <input type="range" id="overlayFontSize" min="18" max="120" value="36">
+                        <span id="overlayFontSizeValue">36px</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="overlayPosition">Overlay position:</label>
+                    <select id="overlayPosition"></select>
+                </div>
+            </section>
+
             <!-- Clock Section -->
             <section class="control-section">
                 <h3>🕒 Clock</h3>

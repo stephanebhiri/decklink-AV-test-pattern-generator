@@ -35,7 +35,41 @@ const DEFAULT_CONFIG = {
     audioChannelForce400: new Array(8).fill(false),
     videoFormat: '1080i50',
     showClock: false,
-    clockPosition: 'bottom-right'
+    clockPosition: 'bottom-right',
+    showConfigOverlay: false,
+    configOverlayFontSize: null,
+    configOverlayPosition: 'top-left'
+};
+
+const DEFAULT_PRESETS = {
+    Actua: {
+        background: 'bars',
+        customBackground: null,
+        text: 'ACTUA PARIS',
+        textPosition: 'top-right',
+        fontSize: 96,
+        fontFamily: 'arial_bold',
+        textWeight: 'normal',
+        textColor: 'white',
+        textBackground: 'black_solid',
+        showLogo: true,
+        logoFile: null,
+        logoPosition: 'top-left',
+        animation: null,
+        audioFreq: 1000,
+        audioLevelDb: '0',
+        audioChannels: 8,
+        audioChannelMap: new Array(8).fill(true),
+        audioChannelIdCycle: [false, false, true, false, false, false, true, false],
+        audioChannelIdPop: [false, true, false, false, false, true, false, false],
+        audioChannelForce400: [false, false, false, true, false, false, false, true],
+        videoFormat: '1080i50',
+        showClock: false,
+        clockPosition: 'bottom-right',
+        showConfigOverlay: true,
+        configOverlayFontSize: 36,
+        configOverlayPosition: 'top-left'
+    }
 };
 
 function normalizeBooleanArray(source, length = 8, fallbackTrue = false) {
@@ -103,7 +137,31 @@ function sanitizeConfig(config = {}) {
     }
 
     merged.showClock = Boolean(merged.showClock);
+    merged.showConfigOverlay = Boolean(merged.showConfigOverlay);
     merged.showLogo = merged.showLogo !== false;
+
+    const overlaySize = Number(merged.configOverlayFontSize);
+    if (Number.isFinite(overlaySize)) {
+        const clamped = Math.min(160, Math.max(16, Math.round(overlaySize)));
+        merged.configOverlayFontSize = clamped;
+    } else {
+        merged.configOverlayFontSize = null;
+    }
+
+    const allowedOverlayPositions = new Set([
+        'top-left',
+        'top-center',
+        'top-right',
+        'center-left',
+        'center',
+        'center-right',
+        'bottom-left',
+        'bottom-center',
+        'bottom-right'
+    ]);
+    if (!allowedOverlayPositions.has(merged.configOverlayPosition)) {
+        merged.configOverlayPosition = DEFAULT_CONFIG.configOverlayPosition;
+    }
 
     return merged;
 }
@@ -207,12 +265,44 @@ function savePresets() {
 
 // Load presets on startup
 loadPresets();
+if (Object.keys(savedPresets).length === 0) {
+    savedPresets = Object.entries(DEFAULT_PRESETS).reduce((acc, [name, preset]) => {
+        acc[name] = {
+            ...sanitizeConfig(preset),
+            createdAt: new Date().toISOString()
+        };
+        return acc;
+    }, {});
+    savePresets();
+}
 
 // FFmpeg process management
 let currentFFmpegProcess = null;
 let pendingRestart = null;
 let pendingCloseReason = null;
 const ffmpegBuilder = new FFmpegBuilder();
+let currentFFmpegConfig = null;
+let currentFFmpegStartedAt = null;
+let ffmpegLogBuffer = [];
+let ffmpegLogSize = 0;
+const MAX_LOG_BUFFER_CHARS = 50000;
+
+function appendToLog(message) {
+    if (!message) {
+        return;
+    }
+
+    const text = String(message);
+    ffmpegLogBuffer.push(text);
+    ffmpegLogSize += text.length;
+
+    while (ffmpegLogSize > MAX_LOG_BUFFER_CHARS && ffmpegLogBuffer.length > 1) {
+        const removed = ffmpegLogBuffer.shift();
+        ffmpegLogSize -= removed.length;
+    }
+
+    io.emit('ffmpeg-output', text);
+}
 
 function startFFmpegProcess(config, socket, options = {}) {
     try {
@@ -225,13 +315,19 @@ function startFFmpegProcess(config, socket, options = {}) {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env, DYLD_LIBRARY_PATH: process.env.DYLD_LIBRARY_PATH || '' }
         });
+        currentFFmpegConfig = cleanConfig;
+        currentFFmpegStartedAt = Date.now();
+        ffmpegLogBuffer = [];
+        ffmpegLogSize = 0;
+        appendToLog(`🚀 FFmpeg started at ${new Date(currentFFmpegStartedAt).toISOString()}\n`);
+        appendToLog(`🔧 Command: ${command.join(' ')}\n`);
 
         currentFFmpegProcess.stdout.on('data', (data) => {
-            socket.emit('ffmpeg-output', data.toString());
+            appendToLog(data.toString());
         });
 
         currentFFmpegProcess.stderr.on('data', (data) => {
-            socket.emit('ffmpeg-output', data.toString());
+            appendToLog(data.toString());
         });
 
         currentFFmpegProcess.on('close', (code) => {
@@ -242,6 +338,7 @@ function startFFmpegProcess(config, socket, options = {}) {
             const restartRequest = pendingRestart;
             pendingRestart = null;
             currentFFmpegProcess = null;
+            currentFFmpegStartedAt = null;
 
             if (reason === 'restart' && restartRequest) {
                 console.log('Restarting FFmpeg with updated configuration');
@@ -249,7 +346,9 @@ function startFFmpegProcess(config, socket, options = {}) {
                 return;
             }
 
-            socket.emit('broadcast-stopped', { code, manual: reason === 'manual' });
+            appendToLog(`⏹️ FFmpeg stopped (code: ${code})\n`);
+            io.emit('broadcast-stopped', { code, manual: reason === 'manual' });
+            currentFFmpegConfig = null;
         });
 
         currentFFmpegProcess.on('error', (error) => {
@@ -258,11 +357,19 @@ function startFFmpegProcess(config, socket, options = {}) {
             currentFFmpegProcess = null;
             pendingCloseReason = null;
             pendingRestart = null;
+            currentFFmpegStartedAt = null;
+            appendToLog(`❌ FFmpeg error: ${error.message}\n`);
         });
 
         setTimeout(() => {
             if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
-                socket.emit('broadcast-started', { success: true, restarted: options.restarted === true });
+                io.emit('broadcast-started', {
+                    success: true,
+                    restarted: options.restarted === true,
+                    config: currentFFmpegConfig,
+                    startedAt: currentFFmpegStartedAt
+                });
+                socket.emit('ack-started', { success: true, restarted: options.restarted === true });
             }
         }, 1000);
 
@@ -300,6 +407,10 @@ app.get('/api/logo-positions', (req, res) => {
     res.json(ffmpegBuilder.getLogoPositions());
 });
 
+app.get('/api/overlay-positions', (req, res) => {
+    res.json(ffmpegBuilder.getOverlayPositions());
+});
+
 app.get('/api/audio-channels', (req, res) => {
     res.json(ffmpegBuilder.getAudioChannelMetadata());
 });
@@ -319,12 +430,14 @@ app.get('/api/status', (req, res) => {
         const pidList = pids.trim().split('\n').filter(pid => pid);
         const isRunning = pidList.length > 0;
 
-        res.json({
-            isRunning: isRunning,
-            pid: pidList.length > 0 ? pidList[0] : null,
-            processCount: pidList.length
-        });
+    res.json({
+        isRunning: isRunning,
+        pid: pidList.length > 0 ? pidList[0] : null,
+        processCount: pidList.length,
+        startedAt: currentFFmpegStartedAt,
+        config: currentFFmpegConfig
     });
+});
 });
 
 app.get('/api/settings', (req, res) => {
@@ -456,6 +569,13 @@ app.post('/api/preview', (req, res) => {
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
+    socket.emit('ffmpeg-log-history', ffmpegLogBuffer.join(''));
+    socket.emit('broadcast-state', {
+        isRunning: Boolean(currentFFmpegProcess),
+        startedAt: currentFFmpegStartedAt,
+        config: currentFFmpegConfig
+    });
+
     socket.on('start-broadcast', (config) => {
         const cleanConfig = sanitizeConfig(config);
         console.log('Starting broadcast with config:', cleanConfig);
@@ -486,7 +606,9 @@ io.on('connection', (socket) => {
             killProcess.on('close', (code) => {
                 console.log('pkill ffmpeg (stop) exit code:', code);
                 if (code === 0) {
-                    socket.emit('broadcast-stopped', { manual: true, killed: true });
+                    appendToLog('⏹️ FFmpeg stopped via pkill\n');
+                    currentFFmpegConfig = null;
+                    io.emit('broadcast-stopped', { manual: true, killed: true });
                 } else {
                     socket.emit('broadcast-stopped', { manual: true, alreadyStopped: true });
                 }
@@ -506,7 +628,10 @@ io.on('connection', (socket) => {
             currentFFmpegProcess = null;
             pendingRestart = null;
             pendingCloseReason = null;
-            socket.emit('broadcast-stopped', { manual: true, killed: true });
+            currentFFmpegStartedAt = null;
+            currentFFmpegConfig = null;
+            appendToLog('⏹️ FFmpeg emergency kill\n');
+            io.emit('broadcast-stopped', { manual: true, killed: true });
         });
     });
 

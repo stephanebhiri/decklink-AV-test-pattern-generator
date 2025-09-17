@@ -22,8 +22,8 @@
 
 ## Fonctionnalités Interface
 
-### TODO Prioritaires
-- Ajouter une option d'affichage en surimpression résumant les réglages vidéo/audio actifs (format, texte, niveaux, pop/cycle, etc.)
+### Surimpression des réglages
+- Option d'affichage en surimpression résumant les réglages vidéo/audio actifs (format, texte, niveaux, pop/cycle, etc.)
 
 ### 1. Texte Dynamique
 ```

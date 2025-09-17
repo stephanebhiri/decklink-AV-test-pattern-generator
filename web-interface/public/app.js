@@ -20,6 +20,7 @@ class BroadcastController {
         this.createClockPositions();
         this.checkServerStatus();
         this.updateControls();
+        this.updateOverlayControlsState();
     }
 
     initializeElements() {
@@ -79,6 +80,10 @@ class BroadcastController {
         // Clock elements
         this.showClockCheckbox = document.getElementById('showClock');
         this.clockPositionsGrid = document.getElementById('clockPositions');
+        this.showConfigOverlayCheckbox = document.getElementById('showConfigOverlay');
+        this.overlayFontSizeSlider = document.getElementById('overlayFontSize');
+        this.overlayFontSizeValue = document.getElementById('overlayFontSizeValue');
+        this.overlayPositionSelect = document.getElementById('overlayPosition');
         this.selectedClockPosition = 'bottom-right';
         this.selectedTonePreset = null;
         this.pendingAudioChannelMap = null;
@@ -94,6 +99,12 @@ class BroadcastController {
             this.audioFreqValue.textContent = this.audioFreqSlider.value + ' Hz';
             this.syncTonePresetHighlight();
         });
+
+        if (this.overlayFontSizeSlider) {
+            this.overlayFontSizeSlider.addEventListener('input', () => {
+                this.overlayFontSizeValue.textContent = this.overlayFontSizeSlider.value + 'px';
+            });
+        }
 
         this.backgroundSelect.addEventListener('change', () => {
             this.updateBackgroundControls();
@@ -137,13 +148,21 @@ class BroadcastController {
             this.handleConfigChange();
         });
 
+        this.showConfigOverlayCheckbox.addEventListener('change', () => {
+            this.updateOverlayControlsState();
+        });
+
         // Auto-preview on change
         const autoPreviewElements = [
             this.backgroundSelect, this.textInput, this.textPositionSelect, this.fontSizeSlider,
             this.fontFamilySelect, this.textWeightSelect, this.textColorSelect, this.textBackgroundSelect,
             this.showLogoCheckbox, this.logoSelect, this.logoPosition, this.animationSelect,
-            this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect
+            this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect,
+            this.overlayPositionSelect, this.overlayFontSizeSlider
         ];
+        if (this.showConfigOverlayCheckbox) {
+            autoPreviewElements.push(this.showConfigOverlayCheckbox);
+        }
         if (this.customBackgroundSelect) {
             autoPreviewElements.push(this.customBackgroundSelect);
         }
@@ -215,12 +234,59 @@ class BroadcastController {
         this.socket.on('ffmpeg-output', (output) => {
             this.appendLog(output);
         });
+
+        this.socket.on('ffmpeg-log-history', (history) => {
+            if (typeof history === 'string') {
+                this.logOutput.textContent = history;
+                this.logOutput.scrollTop = this.logOutput.scrollHeight;
+            }
+        });
+
+        this.socket.on('broadcast-state', (state) => {
+            const running = Boolean(state && state.isRunning);
+            this.isRunning = running;
+            this.isStarting = false;
+            this.isApplying = false;
+            this.isStopping = false;
+            this.hasPendingChanges = false;
+
+            if (running) {
+                this.updateStatus('Broadcast running...', 'running');
+            } else {
+                this.updateStatus('Ready to broadcast', 'ready');
+            }
+            this.updateControls();
+        });
+
+        this.socket.on('ack-started', () => {
+            this.isStarting = false;
+            this.updateControls();
+        });
     }
 
     updateRangeValues() {
         this.fontSizeValue.textContent = this.fontSizeSlider.value + 'px';
         this.audioFreqValue.textContent = this.audioFreqSlider.value + ' Hz';
+        if (this.overlayFontSizeSlider && this.overlayFontSizeValue) {
+            this.overlayFontSizeValue.textContent = this.overlayFontSizeSlider.value + 'px';
+        }
         this.syncTonePresetHighlight();
+    }
+
+    updateOverlayControlsState() {
+        const enabled = this.showConfigOverlayCheckbox && this.showConfigOverlayCheckbox.checked;
+
+        if (this.overlayFontSizeSlider) {
+            this.overlayFontSizeSlider.disabled = !enabled;
+        }
+
+        if (this.overlayPositionSelect) {
+            this.overlayPositionSelect.disabled = !enabled;
+        }
+
+        if (this.overlayFontSizeValue) {
+            this.overlayFontSizeValue.style.opacity = enabled ? '1' : '0.5';
+        }
     }
 
     getConfig() {
@@ -275,7 +341,10 @@ class BroadcastController {
             audioChannelForce400,
             videoFormat: this.videoFormatSelect.value,
             showClock: this.showClockCheckbox.checked,
-            clockPosition: this.selectedClockPosition
+            clockPosition: this.selectedClockPosition,
+            showConfigOverlay: this.showConfigOverlayCheckbox ? this.showConfigOverlayCheckbox.checked : false,
+            configOverlayFontSize: this.overlayFontSizeSlider ? parseInt(this.overlayFontSizeSlider.value, 10) : null,
+            configOverlayPosition: this.overlayPositionSelect ? this.overlayPositionSelect.value : 'top-left'
         };
     }
 
@@ -821,6 +890,10 @@ class BroadcastController {
                 option.textContent = name;
                 this.presetSelect.appendChild(option);
             });
+
+            if (presets.Actua) {
+                this.presetSelect.value = 'Actua';
+            }
         } catch (error) {
             console.error('Error loading presets list:', error);
         }
@@ -881,6 +954,20 @@ class BroadcastController {
         // Apply clock
         if (config.showClock !== undefined) this.showClockCheckbox.checked = config.showClock;
         if (config.clockPosition) this.selectClockPosition(config.clockPosition);
+        if (this.showConfigOverlayCheckbox && config.showConfigOverlay !== undefined) {
+            this.showConfigOverlayCheckbox.checked = Boolean(config.showConfigOverlay);
+        }
+        if (this.overlayFontSizeSlider && config.configOverlayFontSize !== undefined) {
+            const overlaySize = Number(config.configOverlayFontSize);
+            if (Number.isFinite(overlaySize)) {
+                this.overlayFontSizeSlider.value = overlaySize;
+            }
+        }
+        if (this.overlayPositionSelect && config.configOverlayPosition) {
+            this.overlayPositionSelect.value = config.configOverlayPosition;
+        }
+        this.updateOverlayControlsState();
+        this.updateRangeValues();
 
         // Update UI
         this.updateLogoPreview();
@@ -946,6 +1033,12 @@ class BroadcastController {
             // Load logo positions
             const logoPositions = await fetch('/api/logo-positions').then(r => r.json());
             this.populateSelect(this.logoPosition, logoPositions);
+
+            // Load overlay positions
+            if (this.overlayPositionSelect) {
+                const overlayPositions = await fetch('/api/overlay-positions').then(r => r.json());
+                this.populateSelect(this.overlayPositionSelect, overlayPositions);
+            }
 
             // Load animations
             const animations = await fetch('/api/animations').then(r => r.json());
@@ -1073,10 +1166,22 @@ class BroadcastController {
             this.audioFreqSlider.value = settings.audioFreq || 1000;
             this.setAudioLevelValue(settings.audioLevelDb);
             this.videoFormatSelect.value = settings.videoFormat || '1080i50';
+            if (this.showConfigOverlayCheckbox) {
+                this.showConfigOverlayCheckbox.checked = Boolean(settings.showConfigOverlay);
+            }
+            if (this.overlayFontSizeSlider) {
+                const overlaySize = Number(settings.configOverlayFontSize);
+                const sizeValue = Number.isFinite(overlaySize) ? overlaySize : 36;
+                this.overlayFontSizeSlider.value = sizeValue;
+            }
+            if (this.overlayPositionSelect) {
+                this.overlayPositionSelect.value = settings.configOverlayPosition || 'top-left';
+            }
 
             // Update range value displays
             this.updateRangeValues();
             this.updateLogoPreview();
+            this.updateOverlayControlsState();
             this.previewCommand();
             this.updateControls();
         } catch (error) {

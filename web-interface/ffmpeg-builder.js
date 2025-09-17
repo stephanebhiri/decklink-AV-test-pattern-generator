@@ -69,7 +69,10 @@ class FFmpegBuilder {
             animation = null,
             videoFormat = '1080i50',
             showClock = false,
-            clockPosition = 'bottom-right'
+            clockPosition = 'bottom-right',
+            showConfigOverlay = false,
+            configOverlayFontSize = null,
+            configOverlayPosition = 'top-left'
         } = config;
 
         // Calculate text position based on 9-grid system
@@ -190,10 +193,7 @@ class FFmpegBuilder {
             lines.forEach((line, lineIndex) => {
                 if (line.trim()) { // Only process non-empty lines
                     // Escape special characters for each line
-                    const escapedLine = line
-                        .replace(/\\/g, '\\\\\\\\')  // Escape backslashes first
-                        .replace(/'/g, "\\\\'")      // Escape single quotes
-                        .replace(/:/g, '\\\\:');     // Escape colons
+                    const escapedLine = this.escapeDrawtextText(line);
 
                     // Calculate Y position for each line
                     let yPos = textPos.y;
@@ -315,6 +315,31 @@ class FFmpegBuilder {
             filterIndex++;
         }
 
+        if (showConfigOverlay) {
+            const overlayFilters = this.buildConfigOverlayFilter({
+                videoFormat,
+                width,
+                height,
+                toneFrequency: clampedToneFrequency,
+                audioLevelDb,
+                channelMap,
+                idCycleFlags,
+                idPopFlags,
+                force400Flags,
+                decklinkAudioChannels,
+                overlayFontSize: configOverlayFontSize,
+                overlayPosition: configOverlayPosition
+            });
+
+            if (Array.isArray(overlayFilters) && overlayFilters.length > 0) {
+                overlayFilters.forEach(overlayFilter => {
+                    filterComplex.push(`${currentOutput}${overlayFilter}[overlay${filterIndex}]`);
+                    currentOutput = `[overlay${filterIndex}]`;
+                    filterIndex++;
+                });
+            }
+        }
+
         // For interlaced formats, add proper interlacing filters
         if (videoFormat.includes('i')) {
             // Add fps=50,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff for optimal interlacing
@@ -396,6 +421,20 @@ class FFmpegBuilder {
     }
 
     getTextPositions() {
+        return [
+            { id: 'top-left', name: '↖ Top Left' },
+            { id: 'top-center', name: '↑ Top Center' },
+            { id: 'top-right', name: '↗ Top Right' },
+            { id: 'center-left', name: '← Center Left' },
+            { id: 'center', name: '⊙ Center' },
+            { id: 'center-right', name: '→ Center Right' },
+            { id: 'bottom-left', name: '↙ Bottom Left' },
+            { id: 'bottom-center', name: '↓ Bottom Center' },
+            { id: 'bottom-right', name: '↘ Bottom Right' }
+        ];
+    }
+
+    getOverlayPositions() {
         return [
             { id: 'top-left', name: '↖ Top Left' },
             { id: 'top-center', name: '↑ Top Center' },
@@ -541,6 +580,243 @@ class FFmpegBuilder {
         const pop2End = (1 + frameDuration).toFixed(6);
         const pop2Gate = `if(between(mod(t\\,2)\\,1\\,${pop2End})\\,${popGain}\\,0)`;
         return { pop1Gate, pop2Gate };
+    }
+
+    buildConfigOverlayFilter({
+        videoFormat,
+        width,
+        height,
+        toneFrequency,
+        audioLevelDb,
+        channelMap,
+        idCycleFlags,
+        idPopFlags,
+        force400Flags,
+        decklinkAudioChannels,
+        overlayFontSize,
+        overlayPosition
+    }) {
+        const lines = [];
+
+        if (videoFormat) {
+            lines.push(`Format: ${videoFormat}`);
+        }
+
+        const audioSegments = [];
+        if (Number.isFinite(toneFrequency)) {
+            audioSegments.push(`${Math.round(toneFrequency)} Hz`);
+        }
+
+        const formattedDb = this.formatDbLabel(audioLevelDb);
+        if (formattedDb) {
+            audioSegments.push(formattedDb);
+        }
+
+        const excludedChannelIndices = this.collectExcludedOverlayChannels([
+            idPopFlags,
+            force400Flags
+        ], decklinkAudioChannels, channelMap);
+        const activeChannels = this.listActiveChannels(
+            channelMap,
+            decklinkAudioChannels,
+            excludedChannelIndices
+        );
+        if (audioSegments.length > 0 || activeChannels !== '--') {
+            let audioLine = audioSegments.join(' ').trim();
+            if (activeChannels !== '--') {
+                audioLine = audioLine
+                    ? `${audioLine}: ${activeChannels}`
+                    : activeChannels;
+            }
+
+            if (audioLine) {
+                lines.push(audioLine);
+            }
+        }
+
+        const cycleList = this.listFlaggedChannels(idCycleFlags, channelMap, decklinkAudioChannels);
+        const popList = this.listFlaggedChannels(idPopFlags, channelMap, decklinkAudioChannels);
+        const forced400List = this.listFlaggedChannels(force400Flags, channelMap, decklinkAudioChannels);
+
+        lines.push(`Cycle ID: ${cycleList}`);
+        lines.push(`Pop ID: ${popList}`);
+        lines.push(`400Hz ID: ${forced400List}`);
+
+        const cleanedLines = lines
+            .map(line => typeof line === 'string' ? line.trim() : '')
+            .filter(line => line.length > 0);
+
+        if (cleanedLines.length === 0) {
+            return [];
+        }
+
+        const resolvedFontSize = this.resolveOverlayFontSize(overlayFontSize, height);
+        const overlayLineSpacing = Math.max(6, Math.round(resolvedFontSize * 0.3));
+        const overlayBoxBorder = Math.max(4, Math.round(resolvedFontSize * 0.25));
+        const lineStride = resolvedFontSize + overlayLineSpacing;
+        const totalHeight = cleanedLines.length > 0
+            ? resolvedFontSize * cleanedLines.length + overlayLineSpacing * Math.max(0, cleanedLines.length - 1)
+            : 0;
+
+        if (totalHeight <= 0) {
+            return [];
+        }
+
+        const escapedFontPath = this.fontPath.replace(/'/g, "\\'");
+        const xExpression = this.getOverlayXExpression(overlayPosition);
+        const startY = this.getOverlayStartY(overlayPosition, height, totalHeight);
+
+        const filters = [];
+
+        cleanedLines.forEach((line, index) => {
+            const escapedLine = this.escapeDrawtextText(line);
+            const yPosition = startY + Math.round(index * lineStride);
+            const drawtext = `drawtext=text='${escapedLine}':fontfile='${escapedFontPath}':fontsize=${resolvedFontSize}:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=${overlayBoxBorder}:x=${xExpression}:y=${yPosition}`;
+            filters.push(drawtext);
+        });
+
+        return filters;
+    }
+
+    resolveOverlayFontSize(size, frameHeight) {
+        const numeric = Number(size);
+        if (Number.isFinite(numeric) && numeric >= 16 && numeric <= 160) {
+            return Math.round(numeric);
+        }
+
+        const baseline = Math.max(24, Math.round(frameHeight * 0.035));
+        return Math.min(160, Math.max(16, baseline));
+    }
+
+    getOverlayXExpression(position) {
+        const alignRight = new Set(['top-right', 'center-right', 'bottom-right']);
+        const alignCenter = new Set(['top-center', 'center', 'bottom-center']);
+
+        if (alignRight.has(position)) {
+            return 'w-text_w-50';
+        }
+
+        if (alignCenter.has(position)) {
+            return '(w-text_w)/2';
+        }
+
+        return '50';
+    }
+
+    getOverlayStartY(position, frameHeight, totalHeight) {
+        const margin = 50;
+        const topPositions = new Set(['top-left', 'top-center', 'top-right']);
+        const bottomPositions = new Set(['bottom-left', 'bottom-center', 'bottom-right']);
+
+        if (topPositions.has(position)) {
+            return margin;
+        }
+
+        if (bottomPositions.has(position)) {
+            return Math.max(margin, frameHeight - totalHeight - margin);
+        }
+
+        const centered = Math.round((frameHeight - totalHeight) / 2);
+        return Math.max(margin, centered);
+    }
+
+    formatDbLabel(dbValue) {
+        if (dbValue === undefined || dbValue === null) {
+            return null;
+        }
+
+        const match = String(dbValue).match(/-?\d+(?:\.\d+)?/);
+        if (!match) {
+            return null;
+        }
+
+        const numeric = Number.parseFloat(match[0]);
+        if (!Number.isFinite(numeric)) {
+            return null;
+        }
+
+        const rounded = Math.round(numeric * 1000) / 1000;
+        const isInteger = Number.isInteger(rounded);
+        const formatted = isInteger
+            ? rounded.toString()
+            : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+
+        const prefix = rounded > 0 ? '+' : '';
+        return `${prefix}${formatted} dBFS`;
+    }
+
+    collectExcludedOverlayChannels(flagGroups, limit, channelMap) {
+        const excludedIndices = new Set();
+
+        if (!Array.isArray(flagGroups)) {
+            return excludedIndices;
+        }
+
+        const maxLimit = Number.isFinite(limit) && limit > 0
+            ? Math.floor(limit)
+            : Array.isArray(channelMap)
+                ? channelMap.length
+                : 0;
+
+        flagGroups.forEach(flags => {
+            if (!Array.isArray(flags)) {
+                return;
+            }
+
+            const max = Math.min(maxLimit, flags.length);
+            for (let i = 0; i < max; i++) {
+                if (flags[i]) {
+                    excludedIndices.add(i);
+                }
+            }
+        });
+
+        return excludedIndices;
+    }
+
+    listActiveChannels(channelMap, limit, excludedIndices = new Set()) {
+        if (!Array.isArray(channelMap)) {
+            return '--';
+        }
+
+        const max = Math.min(limit || channelMap.length, channelMap.length);
+        const skip = excludedIndices instanceof Set
+            ? excludedIndices
+            : new Set(Array.isArray(excludedIndices) ? excludedIndices : []);
+
+        const values = [];
+        for (let i = 0; i < max; i++) {
+            if (channelMap[i] && !skip.has(i)) {
+                values.push(`Ch${i + 1}`);
+            }
+        }
+
+        return values.length > 0 ? values.join(', ') : '--';
+    }
+
+    listFlaggedChannels(flags, channelMap, limit) {
+        if (!Array.isArray(flags) || !Array.isArray(channelMap)) {
+            return '--';
+        }
+
+        const values = [];
+        const max = Math.min(limit || flags.length, flags.length, channelMap.length);
+        for (let i = 0; i < max; i++) {
+            if (flags[i] && channelMap[i]) {
+                values.push(`Ch${i + 1}`);
+            }
+        }
+
+        return values.length > 0 ? values.join(', ') : '--';
+    }
+
+    escapeDrawtextText(text) {
+        const normalized = String(text).replace(/\\n/g, '\n');
+        return normalized
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\\\n')
+            .replace(/'/g, "\\'")
+            .replace(/:/g, '\\:');
     }
 
     getFontDirective(fontFamily) {
