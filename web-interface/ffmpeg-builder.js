@@ -36,15 +36,17 @@ class FFmpegBuilder {
         let inputs = [];
         let filterComplex = [];
 
-        // Get the framerate for the current video format
+        // Lookup format-specific characteristics once
         const fps = this.getFrameRate(videoFormat);
+        const { width, height } = this.getResolution(videoFormat);
+        const resolution = `${width}x${height}`;
 
         // Background input
         if (background === 'bars') {
             cmd.push('-loop', '1', '-i', this.barsPath);
             inputs.push('0:v');
         } else if (background === 'blue' || background === 'black' || background === 'white') {
-            cmd.push('-f', 'lavfi', '-i', `color=c=${background}:size=1920x1080:rate=${fps}`);
+            cmd.push('-f', 'lavfi', '-i', `color=c=${background}:size=${resolution}:rate=${fps}`);
             inputs.push('0:v');
         }
 
@@ -69,6 +71,14 @@ class FFmpegBuilder {
         // Build filter chain
         let currentOutput = '[0:v]';
         let filterIndex = 0;
+
+        // Only scale the base layer when the requested format needs it (e.g. 720p, SD, or image backgrounds)
+        const needsBaseScale = background === 'bars' || width !== 1920 || height !== 1080;
+        if (needsBaseScale) {
+            filterComplex.push(`${currentOutput}scale=${width}:${height}[base${filterIndex}]`);
+            currentOutput = `[base${filterIndex}]`;
+            filterIndex++;
+        }
 
         // Add text (support multi-line with separate drawtext filters)
         if (text) {
@@ -125,23 +135,27 @@ class FFmpegBuilder {
         // Add clock
         if (showClock) {
             const clockPos = this.getClockPosition(clockPosition);
+            const clockFontSize = Math.max(28, Math.round(48 * (height / 1080)));
+            const clockLineSpacing = Math.max(4, Math.round(clockFontSize * 0.125));
+            const clockBoxBorder = Math.max(3, Math.round(clockFontSize * 0.1));
+
             const startEpochMs = Date.now();
             const baseSeconds = Math.floor(startEpochMs / 1000);
-            const baseMs = startEpochMs % 1000;
+            const datePrefix = new Date(startEpochMs).toISOString().split('T')[0];
 
-            const totalSecondsExpr = `(${baseSeconds}+t)`; // runtime seconds since epoch
-            const totalMillisExpr = `(${baseMs}+t*1000)`;   // runtime milliseconds within current second
-
+            const totalSecondsExpr = `(${baseSeconds}+t)`;
             const hoursExpr = `%{eif\\:floor(${totalSecondsExpr}/3600)-24*floor(${totalSecondsExpr}/86400)\\:d\\:02}`;
             const minutesExpr = `%{eif\\:floor(${totalSecondsExpr}/60)-60*floor(${totalSecondsExpr}/3600)\\:d\\:02}`;
             const secondsExpr = `%{eif\\:floor(${totalSecondsExpr})-60*floor(${totalSecondsExpr}/60)\\:d\\:02}`;
 
-            const displayFps = videoFormat.includes('i') ? Math.max(1, Math.round(fps / 2)) : fps;
+            const displayFps = fps;
             const frameExpr = `%{eif\\:mod(n\\,${displayFps})\\:d\\:02}`;
-            const millisecondsExpr = `%{eif\\:floor(${totalMillisExpr})-1000*floor(${totalMillisExpr}/1000)\\:d\\:03}`;
+            const millisecondsExpr = `%{eif\\:floor(1000*mod(t\\,1))\\:d\\:03}`;
+            const msIndent = ' '.repeat(Math.max(6, Math.round(clockFontSize * 0.25) + 4));
+            const clockText = `${datePrefix} ${hoursExpr}\\:${minutesExpr}\\:${secondsExpr}\\:${frameExpr}\n${msIndent}Ms ${millisecondsExpr}`;
 
-            // Overlay real-time GMT clock with frame count and separate millisecond line
-            const clockFilter = `drawtext=text='GMT ${hoursExpr}\\:${minutesExpr}\\:${secondsExpr}\\:${frameExpr}\\nMS ${millisecondsExpr}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:line_spacing=6:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
+            // Overlay real-time GMT date/time with frame count and millisecond line
+            const clockFilter = `drawtext=text='${clockText}':fontfile='${this.fontPath}':fontsize=${clockFontSize}:fontcolor=white:line_spacing=${clockLineSpacing}:box=1:boxcolor=black@0.5:boxborderw=${clockBoxBorder}:x=${clockPos.x}:y=${clockPos.y}`;
 
             filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
             currentOutput = `[clock${filterIndex}]`;
@@ -270,30 +284,40 @@ class FFmpegBuilder {
                 'UltraStudio Mini Monitor'
             ],
             '1080p25': [
-                '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '25',
+                '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25',
                 '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-                '-f', 'decklink', '-s', '1920x1080', 'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp25', '-raw_format', 'uyvy422',
+                '-audio_depth', '16', '-channels', '2',
+                'UltraStudio Mini Monitor'
             ],
             '1080p30': [
-                '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '30',
+                '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '30',
                 '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-                '-f', 'decklink', '-s', '1920x1080', 'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp30', '-raw_format', 'uyvy422',
+                '-audio_depth', '16', '-channels', '2',
+                'UltraStudio Mini Monitor'
             ],
             '720p50': [
-                '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '50',
+                '-pix_fmt', 'uyvy422', '-s', '1280x720', '-r', '50',
                 '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-                '-f', 'decklink', '-s', '1280x720', 'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp50', '-raw_format', 'uyvy422',
+                '-audio_depth', '16', '-channels', '2',
+                'UltraStudio Mini Monitor'
             ],
             '720p60': [
-                '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '60',
+                '-pix_fmt', 'uyvy422', '-s', '1280x720', '-r', '60',
                 '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-                '-f', 'decklink', '-s', '1280x720', 'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp60', '-raw_format', 'uyvy422',
+                '-audio_depth', '16', '-channels', '2',
+                'UltraStudio Mini Monitor'
             ],
             '576i50': [
-                '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '25',
+                '-pix_fmt', 'uyvy422', '-s', '720x576', '-r', '25',
                 '-field_order', 'tt', '-flags', '+ilme+ildct',
                 '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-                '-f', 'decklink', '-s', '720x576', 'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'pal', '-raw_format', 'uyvy422',
+                '-audio_depth', '16', '-channels', '2',
+                'UltraStudio Mini Monitor'
             ]
         };
         return formats[format] || formats['1080i50'];
@@ -323,6 +347,19 @@ class FFmpegBuilder {
             'bottom-right': { x: 'w-text_w-10', y: 'h-text_h-10' }
         };
         return positions[position] || positions['bottom-right'];
+    }
+
+    getResolution(format) {
+        const resolutions = {
+            '1080i50': { width: 1920, height: 1080 },
+            '1080p25': { width: 1920, height: 1080 },
+            '1080p30': { width: 1920, height: 1080 },
+            '720p50': { width: 1280, height: 720 },
+            '720p60': { width: 1280, height: 720 },
+            '576i50': { width: 720, height: 576 }
+        };
+
+        return resolutions[format] || { width: 1920, height: 1080 };
     }
 
     getFrameRate(format) {

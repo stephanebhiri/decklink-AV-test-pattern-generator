@@ -88,7 +88,69 @@ loadPresets();
 
 // FFmpeg process management
 let currentFFmpegProcess = null;
+let pendingRestart = null;
+let pendingCloseReason = null;
 const ffmpegBuilder = new FFmpegBuilder();
+
+function startFFmpegProcess(config, socket, options = {}) {
+    try {
+        const command = ffmpegBuilder.buildCommand(config);
+        console.log('FFmpeg command:', command.join(' '));
+
+        pendingCloseReason = null;
+        currentFFmpegProcess = spawn(command[0], command.slice(1), {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, DYLD_LIBRARY_PATH: process.env.DYLD_LIBRARY_PATH || '' }
+        });
+
+        currentFFmpegProcess.stdout.on('data', (data) => {
+            socket.emit('ffmpeg-output', data.toString());
+        });
+
+        currentFFmpegProcess.stderr.on('data', (data) => {
+            socket.emit('ffmpeg-output', data.toString());
+        });
+
+        currentFFmpegProcess.on('close', (code) => {
+            console.log(`FFmpeg process exited with code ${code}`);
+            const reason = pendingCloseReason;
+            pendingCloseReason = null;
+
+            const restartRequest = pendingRestart;
+            pendingRestart = null;
+            currentFFmpegProcess = null;
+
+            if (reason === 'restart' && restartRequest) {
+                console.log('Restarting FFmpeg with updated configuration');
+                startFFmpegProcess(restartRequest.config, restartRequest.socket, { restarted: true });
+                return;
+            }
+
+            socket.emit('broadcast-stopped', { code, manual: reason === 'manual' });
+        });
+
+        currentFFmpegProcess.on('error', (error) => {
+            console.error('FFmpeg error:', error);
+            socket.emit('broadcast-error', error.message);
+            currentFFmpegProcess = null;
+            pendingCloseReason = null;
+            pendingRestart = null;
+        });
+
+        setTimeout(() => {
+            if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
+                socket.emit('broadcast-started', { success: true, restarted: options.restarted === true });
+            }
+        }, 1000);
+
+    } catch (error) {
+        console.error('Error starting broadcast:', error);
+        socket.emit('broadcast-error', error.message);
+        currentFFmpegProcess = null;
+        pendingCloseReason = null;
+        pendingRestart = null;
+    }
+}
 
 // Routes
 app.get('/', (req, res) => {
@@ -231,62 +293,23 @@ io.on('connection', (socket) => {
     socket.on('start-broadcast', (config) => {
         console.log('Starting broadcast with config:', config);
 
-        // Check if FFmpeg is already running
         if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
             console.log('FFmpeg is already running, rejecting new request');
             socket.emit('broadcast-error', 'Une diffusion est déjà en cours. Arrêtez d\'abord la diffusion actuelle.');
             return;
         }
 
-        try {
-            const command = ffmpegBuilder.buildCommand(config);
-            console.log('FFmpeg command:', command.join(' '));
-
-            currentFFmpegProcess = spawn(command[0], command.slice(1), {
-                stdio: ['pipe', 'pipe', 'pipe'],
-                env: { ...process.env, DYLD_LIBRARY_PATH: process.env.DYLD_LIBRARY_PATH || '' }
-            });
-
-            currentFFmpegProcess.stdout.on('data', (data) => {
-                socket.emit('ffmpeg-output', data.toString());
-            });
-
-            currentFFmpegProcess.stderr.on('data', (data) => {
-                socket.emit('ffmpeg-output', data.toString());
-            });
-
-            currentFFmpegProcess.on('close', (code) => {
-                console.log(`FFmpeg process exited with code ${code}`);
-                socket.emit('broadcast-stopped', { code, manual: false });
-                currentFFmpegProcess = null;
-            });
-
-            // Wait a bit for FFmpeg to actually start before emitting success
-            setTimeout(() => {
-                if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
-                    console.log('Emitting broadcast-started event');
-                    socket.emit('broadcast-started', { success: true });
-                }
-            }, 1000);
-
-            currentFFmpegProcess.on('error', (error) => {
-                console.error('FFmpeg error:', error);
-                socket.emit('broadcast-error', error.message);
-                currentFFmpegProcess = null;
-            });
-
-        } catch (error) {
-            console.error('Error starting broadcast:', error);
-            socket.emit('broadcast-error', error.message);
-        }
+        pendingRestart = null;
+        startFFmpegProcess(config, socket);
     });
 
     socket.on('stop-broadcast', () => {
         console.log('Stopping broadcast');
+        pendingRestart = null;
+
         if (currentFFmpegProcess) {
+            pendingCloseReason = 'manual';
             currentFFmpegProcess.kill('SIGTERM');
-            currentFFmpegProcess = null;
-            socket.emit('broadcast-stopped', { manual: true });
         } else {
             // No process reference, try to kill via pkill (for post-refresh scenarios)
             console.log('No process reference, attempting pkill');
@@ -314,8 +337,23 @@ io.on('connection', (socket) => {
         killProcess.on('close', (code) => {
             console.log('pkill ffmpeg exit code:', code);
             currentFFmpegProcess = null;
+            pendingRestart = null;
+            pendingCloseReason = null;
             socket.emit('broadcast-stopped', { manual: true, killed: true });
         });
+    });
+
+    socket.on('apply-broadcast-settings', (config) => {
+        console.log('Applying new broadcast settings');
+
+        if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
+            pendingRestart = { config, socket };
+            pendingCloseReason = 'restart';
+            currentFFmpegProcess.kill('SIGTERM');
+        } else {
+            pendingRestart = null;
+            startFFmpegProcess(config, socket);
+        }
     });
 
     socket.on('disconnect', () => {

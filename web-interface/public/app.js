@@ -3,7 +3,13 @@ class BroadcastController {
     constructor() {
         this.socket = io();
         this.isRunning = false;
+        this.isStarting = false;
+        this.isApplying = false;
+        this.isStopping = false;
+        this.hasPendingChanges = false;
         this.initializeElements();
+        this.defaultStartLabel = this.startBtn.textContent || 'Démarrer Diffusion';
+        this.applyLabel = 'Appliquer les changements';
         this.bindEvents();
         this.setupSocketListeners();
         this.updateRangeValues();
@@ -12,6 +18,7 @@ class BroadcastController {
         this.loadPresetsList();
         this.createClockPositions();
         this.checkServerStatus();
+        this.updateControls();
     }
 
     initializeElements() {
@@ -84,7 +91,11 @@ class BroadcastController {
         this.logoSelect.addEventListener('change', () => this.updateLogoPreview());
 
         // Clock events
-        this.showClockCheckbox.addEventListener('change', () => this.previewCommand());
+        this.showClockCheckbox.addEventListener('change', () => {
+            this.previewCommand();
+            this.saveSettings();
+            this.handleConfigChange();
+        });
 
         // Auto-preview on change
         const autoPreviewElements = [
@@ -97,11 +108,19 @@ class BroadcastController {
             element.addEventListener('change', () => {
                 this.previewCommand();
                 this.saveSettings();
+                this.handleConfigChange();
             });
             if (element.type === 'range') {
                 element.addEventListener('input', () => {
                     this.previewCommand();
                     this.saveSettings();
+                    this.handleConfigChange();
+                });
+            } else if (element === this.textInput) {
+                element.addEventListener('input', () => {
+                    this.previewCommand();
+                    this.saveSettings();
+                    this.handleConfigChange();
                 });
             }
         });
@@ -110,15 +129,28 @@ class BroadcastController {
     setupSocketListeners() {
         this.socket.on('broadcast-started', (data) => {
             console.log('Received broadcast-started event:', data);
+            this.isStarting = false;
+            this.isApplying = false;
+            this.isStopping = false;
+            this.isRunning = true;
+            this.hasPendingChanges = false;
             this.updateStatus('Diffusion en cours...', 'running');
-            this.setButtonStates(false, true);
-            this.appendLog('✅ Diffusion démarrée avec succès\n');
+            this.updateControls();
+            if (data && data.restarted) {
+                this.appendLog('✅ Changements appliqués\n');
+            } else {
+                this.appendLog('✅ Diffusion démarrée avec succès\n');
+            }
         });
 
         this.socket.on('broadcast-stopped', (data) => {
-            this.updateStatus('Diffusion arrêtée', 'ready');
-            this.setButtonStates(true, false);
+            this.isStarting = false;
+            this.isApplying = false;
+            this.isStopping = false;
             this.isRunning = false;
+            this.hasPendingChanges = false;
+            this.updateStatus('Diffusion arrêtée', 'ready');
+            this.updateControls();
             if (data.manual) {
                 this.appendLog('⏹️ Diffusion arrêtée manuellement\n');
             } else {
@@ -128,7 +160,11 @@ class BroadcastController {
 
         this.socket.on('broadcast-error', (error) => {
             this.updateStatus(`Erreur: ${error}`, 'error');
-            this.setButtonStates(true, false);
+            this.isStarting = false;
+            this.isApplying = false;
+            this.isStopping = false;
+            this.isRunning = false;
+            this.updateControls();
             this.appendLog(`❌ Erreur: ${error}\n`);
         });
 
@@ -168,8 +204,12 @@ class BroadcastController {
             if (status.isRunning) {
                 console.log('FFmpeg is already running, PID:', status.pid);
                 this.updateStatus('Diffusion en cours...', 'running');
-                this.setButtonStates(false, true);
-                this.isRunning = true;  // Force isRunning to true
+                this.isRunning = true;
+                this.isStarting = false;
+                this.isApplying = false;
+                this.isStopping = false;
+                this.hasPendingChanges = false;
+                this.updateControls();
                 this.appendLog(`🔄 FFmpeg détecté en cours d'exécution (PID: ${status.pid})\n`);
             }
         } catch (error) {
@@ -192,7 +232,11 @@ class BroadcastController {
 
             if (data.success) {
                 this.commandPreview.textContent = data.command;
-                this.updateStatus('Commande générée - Prêt à diffuser', 'ready');
+                if (this.isRunning) {
+                    this.updateStatus('Changements prêts - appliquez pour mettre à jour', 'running');
+                } else if (!this.isStarting) {
+                    this.updateStatus('Commande générée - Prêt à diffuser', 'ready');
+                }
             }
         } catch (error) {
             console.error('Erreur preview:', error);
@@ -201,20 +245,38 @@ class BroadcastController {
     }
 
     startBroadcast() {
-        if (this.isRunning) return;
-
         const config = this.getConfig();
+        if (this.isRunning) {
+            if (!this.hasPendingChanges || this.isApplying) return;
+
+            this.isApplying = true;
+            this.hasPendingChanges = false;
+            this.isStarting = true;
+            this.socket.emit('apply-broadcast-settings', config);
+            this.updateStatus('Application des changements...', 'running');
+            this.appendLog('🔄 Application des changements...\n');
+            this.updateControls();
+            return;
+        }
+
+        if (this.isStarting) return;
+
+        this.isStarting = true;
         this.socket.emit('start-broadcast', config);
         this.updateStatus('Démarrage en cours...', 'running');
         this.clearLog();
         this.appendLog('🚀 Démarrage de la diffusion...\n');
+        this.updateControls();
     }
 
     stopBroadcast() {
-        if (!this.isRunning) return;
+        if (!this.isRunning || this.isStopping) return;
 
+        this.isStopping = true;
+        this.hasPendingChanges = false;
         this.socket.emit('stop-broadcast');
         this.updateStatus('Arrêt en cours...', 'running');
+        this.updateControls();
     }
 
     killFFmpeg() {
@@ -227,12 +289,31 @@ class BroadcastController {
     updateStatus(text, type = 'ready') {
         this.statusText.textContent = text;
         this.statusText.className = `status-${type}`;
-        this.isRunning = (type === 'running');
     }
 
-    setButtonStates(startEnabled, stopEnabled) {
-        this.startBtn.disabled = !startEnabled;
-        this.stopBtn.disabled = !stopEnabled;
+    updateControls() {
+        if (this.isRunning) {
+            this.stopBtn.disabled = this.isStopping || this.isApplying;
+
+            if (this.hasPendingChanges && !this.isApplying) {
+                this.startBtn.textContent = this.applyLabel;
+                this.startBtn.disabled = false;
+            } else {
+                this.startBtn.textContent = this.defaultStartLabel;
+                this.startBtn.disabled = true;
+            }
+        } else {
+            this.stopBtn.disabled = true;
+            this.startBtn.textContent = this.defaultStartLabel;
+            this.startBtn.disabled = this.isStarting;
+        }
+    }
+
+    handleConfigChange() {
+        if (this.isRunning && !this.isApplying) {
+            this.hasPendingChanges = true;
+            this.updateControls();
+        }
     }
 
     appendLog(text) {
@@ -354,7 +435,7 @@ class BroadcastController {
             this.fontSizeSlider.value = config.fontSize;
             this.fontSizeValue.textContent = config.fontSize + 'px';
         }
-        if (config.textColor) this.textColorInput.value = config.textColor;
+        if (config.textColor) this.textColorSelect.value = config.textColor;
 
         // Apply logo
         if (config.showLogo !== undefined) this.showLogoCheckbox.checked = config.showLogo;
@@ -379,6 +460,8 @@ class BroadcastController {
         // Update UI
         this.updateLogoPreview();
         this.previewCommand();
+        this.saveSettings();
+        this.handleConfigChange();
     }
 
     createClockPositions() {
@@ -420,6 +503,8 @@ class BroadcastController {
         });
 
         this.previewCommand();
+        this.saveSettings();
+        this.handleConfigChange();
     }
 
     async loadOptions() {
@@ -494,6 +579,7 @@ class BroadcastController {
             this.updateRangeValues();
             this.updateLogoPreview();
             this.previewCommand();
+            this.updateControls();
         } catch (error) {
             console.error('Error loading settings:', error);
         }
