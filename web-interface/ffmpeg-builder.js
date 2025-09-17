@@ -11,10 +11,37 @@ class FFmpegBuilder {
         this.resolutionTestPath = path.join(this.picturesPath, 'resolution_test.png');
         this.fontPath = '/System/Library/Fonts/SFNSMono.ttf';
         this.fontOptions = {
-            sf_mono: { type: 'fontfile', value: this.fontPath },
-            arial_bold: { type: 'font', value: 'Arial-BoldMT' },
-            arial_black: { type: 'font', value: 'Arial-Black' },
-            impact: { type: 'font', value: 'Impact' }
+            sf_mono: {
+                type: 'fontfile',
+                candidates: [this.fontPath]
+            },
+            arial_bold: {
+                type: 'fontfile',
+                candidates: [
+                    '/Library/Fonts/Arial Bold.ttf',
+                    '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+                    '/System/Library/Fonts/Arial Bold.ttf'
+                ],
+                fallbackName: 'Arial-BoldMT'
+            },
+            arial_black: {
+                type: 'fontfile',
+                candidates: [
+                    '/Library/Fonts/Arial Black.ttf',
+                    '/System/Library/Fonts/Supplemental/Arial Black.ttf',
+                    '/System/Library/Fonts/Arial Black.ttf'
+                ],
+                fallbackName: 'Arial-Black'
+            },
+            impact: {
+                type: 'fontfile',
+                candidates: [
+                    '/Library/Fonts/Impact.ttf',
+                    '/System/Library/Fonts/Supplemental/Impact.ttf',
+                    '/System/Library/Fonts/Impact.ttf'
+                ],
+                fallbackName: 'Impact'
+            }
         };
     }
 
@@ -518,11 +545,24 @@ class FFmpegBuilder {
 
     getFontDirective(fontFamily) {
         const option = this.fontOptions[fontFamily] || this.fontOptions.sf_mono;
-        if (option && option.type === 'fontfile' && option.value) {
-            const fontPath = this.resolveFontPath(option.value);
-            if (fontPath) {
-                const escaped = fontPath.replace(/'/g, "\\'");
-                return `fontfile='${escaped}'`;
+
+        if (option && option.type === 'fontfile') {
+            const candidates = Array.isArray(option.candidates)
+                ? option.candidates
+                : option.value
+                    ? [option.value]
+                    : [];
+
+            for (const candidate of candidates) {
+                const fontPath = this.resolveFontPath(candidate);
+                if (fontPath) {
+                    const escaped = fontPath.replace(/'/g, "\\'");
+                    return `fontfile='${escaped}'`;
+                }
+            }
+
+            if (option.fallbackName) {
+                return `font=${option.fallbackName}`;
             }
         }
 
