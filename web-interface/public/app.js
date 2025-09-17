@@ -979,7 +979,10 @@ class BroadcastController {
         if (config.showClock !== undefined) {
             this.showClockCheckbox.checked = Boolean(config.showClock);
         }
-        if (config.clockPosition) this.selectClockPosition(config.clockPosition);
+        if (config.clockPosition) {
+            const silentClockUpdate = skipPreview && skipSave;
+            this.selectClockPosition(config.clockPosition, { silent: silentClockUpdate });
+        }
         if (this.showConfigOverlayCheckbox && config.showConfigOverlay !== undefined) {
             this.showConfigOverlayCheckbox.checked = Boolean(config.showConfigOverlay);
         }
@@ -1051,7 +1054,8 @@ class BroadcastController {
         });
     }
 
-    selectClockPosition(position) {
+    selectClockPosition(position, options = {}) {
+        const { silent = false } = options;
         this.selectedClockPosition = position;
 
         // Update button states
@@ -1059,9 +1063,11 @@ class BroadcastController {
             btn.classList.toggle('active', btn.dataset.position === position);
         });
 
-        this.previewCommand();
-        this.saveSettings();
-        this.handleConfigChange();
+        if (!silent) {
+            this.previewCommand();
+            this.saveSettings();
+            this.handleConfigChange();
+        }
     }
 
     selectTextPosition(position) {
@@ -1206,73 +1212,7 @@ class BroadcastController {
         try {
             const response = await fetch('/api/settings');
             const settings = await response.json();
-
-            // Apply settings to form elements
-            this.backgroundSelect.value = settings.background || 'blue';
-            if (this.customBackgroundSelect) {
-                this.customBackgroundSelect.value = settings.customBackground || '';
-            }
-            this.updateBackgroundControls();
-            this.updateBackgroundPreview();
-            this.textInput.value = settings.text || 'ACTUA PARIS';
-            this.textPositionSelect.value = settings.textPosition || 'center';
-            this.fontSizeSlider.value = settings.fontSize || 80;
-            if (this.fontFamilySelect) {
-                this.fontFamilySelect.value = settings.fontFamily || 'sf_mono';
-            }
-            if (this.textWeightSelect) {
-                this.textWeightSelect.value = settings.textWeight || 'normal';
-            }
-            this.textColorSelect.value = settings.textColor || 'white';
-            if (this.textBackgroundSelect) {
-                this.textBackgroundSelect.value = settings.textBackground || 'none';
-            }
-            this.showLogoCheckbox.checked = settings.showLogo !== false;
-            this.logoSelect.value = settings.logoFile || '';
-            this.logoPosition.value = settings.logoPosition || 'top-right';
-            this.animationSelect.value = settings.animation || '';
-            const initialChannelMap = Array.isArray(settings.audioChannelMap)
-                ? settings.audioChannelMap
-                : new Array(Math.max(2, Number(settings.audioChannels) || 2)).fill(true);
-            this.applyAudioChannelMap(initialChannelMap);
-
-            this.applyAudioChannelOptions({
-                idCycle: settings.audioChannelIdCycle,
-                flashFlags: Array.isArray(settings.audioChannelFlash)
-                    ? settings.audioChannelFlash
-                    : Array.isArray(settings.audioChannelIdPop)
-                        ? settings.audioChannelIdPop
-                        : [],
-                force400: settings.audioChannelForce400
-            });
-
-            this.audioFreqSlider.value = settings.audioFreq || 1000;
-            this.setAudioLevelValue(settings.audioLevelDb);
-            this.videoFormatSelect.value = settings.videoFormat || '1080i50';
-            if (this.showConfigOverlayCheckbox) {
-                this.showConfigOverlayCheckbox.checked = Boolean(settings.showConfigOverlay);
-            }
-            if (this.overlayFontSizeSlider) {
-                const overlaySize = Number(settings.configOverlayFontSize);
-                const sizeValue = Number.isFinite(overlaySize) ? overlaySize : 36;
-                this.overlayFontSizeSlider.value = sizeValue;
-            }
-            if (this.overlayPositionSelect) {
-                this.overlayPositionSelect.value = settings.configOverlayPosition || 'top-left';
-            }
-            if (this.flashOverlayOffsetSlider) {
-                const rawFlashOffset = settings.flashOverlayOffset ?? settings.popFlashOffset;
-                const flashOffset = Number(rawFlashOffset);
-                const offsetValue = Number.isFinite(flashOffset) ? flashOffset : 0;
-                this.flashOverlayOffsetSlider.value = offsetValue;
-            }
-
-            // Update range value displays
-            this.updateRangeValues();
-            this.updateLogoPreview();
-            this.updateOverlayControlsState();
-            this.previewCommand();
-            this.updateControls();
+            this.applyConfig(settings, { skipSave: true, skipPreview: true, markClean: true });
         } catch (error) {
             console.error('Error loading settings:', error);
         }
