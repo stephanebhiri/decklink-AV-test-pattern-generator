@@ -105,7 +105,7 @@ class FFmpegBuilder {
         const decklinkAudioChannels = requiresExtendedLayout ? 8 : 2;
         const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
         const cycleExpr = this.getCycleEnvelope();
-        const popExpr = this.getIdPopExpression(fps);
+        const { pop1Gate, pop2Gate } = this.getPopGateExpressions(fps);
         const silentExpr = '(0.000001)';
         const channelExprs = channelMap
             .slice(0, decklinkAudioChannels)
@@ -122,7 +122,14 @@ class FFmpegBuilder {
                 }
 
                 if (idPopFlags[idx]) {
-                    expr = `(${expr}*${popExpr})`;
+                    const popTerms = [
+                        `(sin(2*PI*1000*t)*${pop1Gate})`,
+                        `(sin(2*PI*400*t)*${pop2Gate})`
+                    ];
+                    const combinedPop = popTerms.join('+');
+                    expr = idCycleFlags[idx]
+                        ? `(${expr})+${combinedPop}`
+                        : combinedPop;
                 }
 
                 return expr;
@@ -211,11 +218,29 @@ class FFmpegBuilder {
         if (needsIdFlash) {
             const frameDuration = fps > 0 ? (1 / fps) : 0.04;
             const frameExpr = frameDuration.toFixed(6);
-            const flashEnable = `lt(mod(t\\,1)\\,${frameExpr})`;
-            const flashBox = `drawbox=x=(iw-iw*0.15)/2:y=(ih-ih*0.15)/2:w=iw*0.15:h=ih*0.15:color=white@0.9:t=fill:enable='${flashEnable}'`;
-            filterComplex.push(`${currentOutput}${flashBox}[flash${filterIndex}]`);
-            currentOutput = `[flash${filterIndex}]`;
-            filterIndex++;
+            const pop1Enable = `lt(mod(t\\,2)\\,${frameExpr})`;
+            const pop2End = (1 + frameDuration).toFixed(6);
+            const pop2Enable = `between(mod(t\\,2)\\,1\\,${pop2End})`;
+            const popBoxWidth = 'iw*0.15';
+            const popBoxHeight = 'ih*0.15';
+            const popTextSize = Math.max(32, Math.round(height * 0.08));
+            const overlays = [
+                { enable: pop1Enable, boxColor: 'white@0.9', text: '1KHz', textColor: 'black' },
+                { enable: pop2Enable, boxColor: 'black@0.9', text: '400Hz', textColor: 'white' }
+            ];
+
+            overlays.forEach(({ enable, boxColor, text, textColor }) => {
+                const boxFilter = `drawbox=x=(iw-${popBoxWidth})/2:y=(ih-${popBoxHeight})/2:w=${popBoxWidth}:h=${popBoxHeight}:color=${boxColor}:t=fill:enable='${enable}'`;
+                filterComplex.push(`${currentOutput}${boxFilter}[flash${filterIndex}]`);
+                currentOutput = `[flash${filterIndex}]`;
+                filterIndex++;
+
+                const escapedFontPath = this.fontPath.replace(/'/g, "\'");
+                const textFilter = `drawtext=text='${text}':fontfile='${escapedFontPath}':fontsize=${popTextSize}:fontcolor=${textColor}:x=(w-text_w)/2:y=(h-text_h)/2:enable='${enable}'`;
+                filterComplex.push(`${currentOutput}${textFilter}[flash${filterIndex}]`);
+                currentOutput = `[flash${filterIndex}]`;
+                filterIndex++;
+            });
         }
 
         // Add animation
@@ -481,11 +506,14 @@ class FFmpegBuilder {
         return 'if(lt(mod(t\\,1)\\,0.5)\\,1\\,0.1)';
     }
 
-    getIdPopExpression(fps) {
+    getPopGateExpressions(fps) {
         const frameDuration = fps > 0 ? (1 / fps) : 0.04;
         const frameExpr = frameDuration.toFixed(6);
         const popGain = Math.pow(10, 12 / 20).toFixed(6);
-        return `if(lt(mod(t\\,1)\\,${frameExpr})\\,${popGain}\\,1)`;
+        const pop1Gate = `if(lt(mod(t\\,2)\\,${frameExpr})\\,${popGain}\\,0)`;
+        const pop2End = (1 + frameDuration).toFixed(6);
+        const pop2Gate = `if(between(mod(t\\,2)\\,1\\,${pop2End})\\,${popGain}\\,0)`;
+        return { pop1Gate, pop2Gate };
     }
 
     getFontDirective(fontFamily) {
