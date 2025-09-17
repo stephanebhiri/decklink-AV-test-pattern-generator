@@ -212,7 +212,8 @@ class FFmpegBuilder {
             const frameDuration = fps > 0 ? (1 / fps) : 0.04;
             const frameExpr = frameDuration.toFixed(6);
             const flashEnable = `lt(mod(t\\,1)\\,${frameExpr})`;
-            filterComplex.push(`${currentOutput}drawbox=x=(w-w*0.15)/2:y=(h-h*0.15)/2:w=w*0.15:h=h*0.15:color=white@0.9:t=fill:enable='${flashEnable}'[flash${filterIndex}]`);
+            const flashBox = `drawbox=x=(iw-iw*0.15)/2:y=(ih-ih*0.15)/2:w=iw*0.15:h=ih*0.15:color=white@0.9:t=fill:enable='${flashEnable}'`;
+            filterComplex.push(`${currentOutput}${flashBox}[flash${filterIndex}]`);
             currentOutput = `[flash${filterIndex}]`;
             filterIndex++;
         }
