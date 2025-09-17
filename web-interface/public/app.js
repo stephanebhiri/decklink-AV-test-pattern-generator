@@ -971,7 +971,9 @@ class BroadcastController {
         if (config.videoFormat) this.videoFormatSelect.value = config.videoFormat;
 
         // Apply clock
-        if (config.showClock !== undefined) this.showClockCheckbox.checked = config.showClock;
+        if (config.showClock !== undefined) {
+            this.showClockCheckbox.checked = Boolean(config.showClock);
+        }
         if (config.clockPosition) this.selectClockPosition(config.clockPosition);
         if (this.showConfigOverlayCheckbox && config.showConfigOverlay !== undefined) {
             this.showConfigOverlayCheckbox.checked = Boolean(config.showConfigOverlay);
