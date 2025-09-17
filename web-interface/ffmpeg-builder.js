@@ -602,6 +602,14 @@ class FFmpegBuilder {
             lines.push(`Format: ${videoFormat}`);
         }
 
+        const channelInfo = this.collectChannelInfo({
+            channelMap,
+            idPopFlags,
+            idCycleFlags,
+            force400Flags,
+            limit: decklinkAudioChannels
+        });
+
         const audioSegments = [];
         if (Number.isFinite(toneFrequency)) {
             audioSegments.push(`${Math.round(toneFrequency)} Hz`);
@@ -612,35 +620,29 @@ class FFmpegBuilder {
             audioSegments.push(formattedDb);
         }
 
-        const excludedChannelIndices = this.collectExcludedOverlayChannels([
-            idPopFlags,
-            force400Flags
-        ], decklinkAudioChannels, channelMap);
-        const activeChannels = this.listActiveChannels(
-            channelMap,
-            decklinkAudioChannels,
-            excludedChannelIndices
-        );
-        if (audioSegments.length > 0 || activeChannels !== '--') {
-            let audioLine = audioSegments.join(' ').trim();
-            if (activeChannels !== '--') {
-                audioLine = audioLine
-                    ? `${audioLine}: ${activeChannels}`
-                    : activeChannels;
+        if (audioSegments.length > 0 || channelInfo.baseTone.length > 0) {
+            let descriptor = audioSegments.join(' ').trim();
+            if (channelInfo.baseTone.length > 0) {
+                const suffix = channelInfo.baseTone.join(', ');
+                descriptor = descriptor
+                    ? `${descriptor}: ${suffix}`
+                    : suffix;
             }
 
-            if (audioLine) {
-                lines.push(audioLine);
+            if (descriptor) {
+                lines.push(`▌ ${descriptor}`);
             }
         }
 
-        const cycleList = this.listFlaggedChannels(idCycleFlags, channelMap, decklinkAudioChannels);
-        const popList = this.listFlaggedChannels(idPopFlags, channelMap, decklinkAudioChannels);
-        const forced400List = this.listFlaggedChannels(force400Flags, channelMap, decklinkAudioChannels);
+        const idLine = channelInfo.pop.length > 0
+            ? channelInfo.pop.join(', ')
+            : '--';
+        lines.push(`▌ ID: ${idLine}`);
 
-        lines.push(`Cycle ID: ${cycleList}`);
-        lines.push(`Pop ID: ${popList}`);
-        lines.push(`400Hz ID: ${forced400List}`);
+        const forced400Line = channelInfo.force400.length > 0
+            ? channelInfo.force400.join(', ')
+            : '--';
+        lines.push(`▌ 400Hz ID: ${forced400Line}`);
 
         const cleanedLines = lines
             .map(line => typeof line === 'string' ? line.trim() : '')
@@ -745,69 +747,53 @@ class FFmpegBuilder {
         return `${prefix}${formatted} dBFS`;
     }
 
-    collectExcludedOverlayChannels(flagGroups, limit, channelMap) {
-        const excludedIndices = new Set();
+    collectChannelInfo({
+        channelMap,
+        idPopFlags,
+        idCycleFlags,
+        force400Flags,
+        limit
+    }) {
+        const baseTone = [];
+        const pop = [];
+        const cycle = [];
+        const force400 = [];
 
-        if (!Array.isArray(flagGroups)) {
-            return excludedIndices;
-        }
-
-        const maxLimit = Number.isFinite(limit) && limit > 0
-            ? Math.floor(limit)
-            : Array.isArray(channelMap)
-                ? channelMap.length
-                : 0;
-
-        flagGroups.forEach(flags => {
-            if (!Array.isArray(flags)) {
-                return;
-            }
-
-            const max = Math.min(maxLimit, flags.length);
-            for (let i = 0; i < max; i++) {
-                if (flags[i]) {
-                    excludedIndices.add(i);
-                }
-            }
-        });
-
-        return excludedIndices;
-    }
-
-    listActiveChannels(channelMap, limit, excludedIndices = new Set()) {
         if (!Array.isArray(channelMap)) {
-            return '--';
+            return { baseTone, pop, cycle, force400 };
         }
 
-        const max = Math.min(limit || channelMap.length, channelMap.length);
-        const skip = excludedIndices instanceof Set
-            ? excludedIndices
-            : new Set(Array.isArray(excludedIndices) ? excludedIndices : []);
+        const max = Math.min(
+            Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : channelMap.length,
+            channelMap.length
+        );
 
-        const values = [];
         for (let i = 0; i < max; i++) {
-            if (channelMap[i] && !skip.has(i)) {
-                values.push(`Ch${i + 1}`);
+            if (!channelMap[i]) {
+                continue;
+            }
+
+            const label = `Ch${i + 1}`;
+            const popFlag = Array.isArray(idPopFlags) && Boolean(idPopFlags[i]);
+            const cycleFlag = Array.isArray(idCycleFlags) && Boolean(idCycleFlags[i]);
+            const forceFlag = Array.isArray(force400Flags) && Boolean(force400Flags[i]);
+
+            if (popFlag) {
+                pop.push(label);
+            } else {
+                baseTone.push(label);
+            }
+
+            if (cycleFlag) {
+                cycle.push(label);
+            }
+
+            if (forceFlag) {
+                force400.push(label);
             }
         }
 
-        return values.length > 0 ? values.join(', ') : '--';
-    }
-
-    listFlaggedChannels(flags, channelMap, limit) {
-        if (!Array.isArray(flags) || !Array.isArray(channelMap)) {
-            return '--';
-        }
-
-        const values = [];
-        const max = Math.min(limit || flags.length, flags.length, channelMap.length);
-        for (let i = 0; i < max; i++) {
-            if (flags[i] && channelMap[i]) {
-                values.push(`Ch${i + 1}`);
-            }
-        }
-
-        return values.length > 0 ? values.join(', ') : '--';
+        return { baseTone, pop, cycle, force400 };
     }
 
     escapeDrawtextText(text) {
