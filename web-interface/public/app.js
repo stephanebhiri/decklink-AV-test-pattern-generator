@@ -1019,6 +1019,40 @@ class BroadcastController {
         this.handleConfigChange();
     }
 
+    selectTextPosition(position) {
+        if (!this.textPositionSelect) {
+            return;
+        }
+
+        const desired = String(position);
+        const hasOption = Array.from(this.textPositionSelect.options).some(opt => opt.value === desired);
+        if (!hasOption) {
+            const option = document.createElement('option');
+            option.value = desired;
+            option.textContent = desired;
+            this.textPositionSelect.appendChild(option);
+        }
+
+        this.textPositionSelect.value = desired;
+    }
+
+    selectLogoPosition(position) {
+        if (!this.logoPosition) {
+            return;
+        }
+
+        const desired = String(position);
+        const hasOption = Array.from(this.logoPosition.options).some(opt => opt.value === desired);
+        if (!hasOption) {
+            const option = document.createElement('option');
+            option.value = desired;
+            option.textContent = desired;
+            this.logoPosition.appendChild(option);
+        }
+
+        this.logoPosition.value = desired;
+    }
+
     async loadOptions() {
         try {
             // Load backgrounds

@@ -241,16 +241,17 @@ class FFmpegBuilder {
             });
         }
 
-        const needsIdFlash = idPopFlags.some(Boolean);
-        if (needsIdFlash) {
+const popOverlayFilters = [];
+        if (idPopFlags.some(Boolean)) {
             const frameDuration = fps > 0 ? (1 / fps) : 0.04;
             const frameExpr = frameDuration.toFixed(6);
-            const pop1Enable = `lt(mod(t\\,2)\\,${frameExpr})`;
+            const pop1Enable = `lt(mod(t\,2)\,${frameExpr})`;
             const pop2End = (1 + frameDuration).toFixed(6);
-            const pop2Enable = `between(mod(t\\,2)\\,1\\,${pop2End})`;
+            const pop2Enable = `between(mod(t\,2)\,1\,${pop2End})`;
             const popBoxWidth = 'iw*0.15';
             const popBoxHeight = 'ih*0.15';
             const popTextSize = Math.max(32, Math.round(height * 0.08));
+            const escapedFontPath = this.fontPath.replace(/'/g, "\\'");
             const overlays = [
                 { enable: pop1Enable, boxColor: 'white@0.9', text: '1KHz', textColor: 'black' },
                 { enable: pop2Enable, boxColor: 'black@0.9', text: '400Hz', textColor: 'white' }
@@ -258,15 +259,8 @@ class FFmpegBuilder {
 
             overlays.forEach(({ enable, boxColor, text, textColor }) => {
                 const boxFilter = `drawbox=x=(iw-${popBoxWidth})/2:y=(ih-${popBoxHeight})/2:w=${popBoxWidth}:h=${popBoxHeight}:color=${boxColor}:t=fill:enable='${enable}'`;
-                filterComplex.push(`${currentOutput}${boxFilter}[flash${filterIndex}]`);
-                currentOutput = `[flash${filterIndex}]`;
-                filterIndex++;
-
-                const escapedFontPath = this.fontPath.replace(/'/g, "\'");
                 const textFilter = `drawtext=text='${text}':fontfile='${escapedFontPath}':fontsize=${popTextSize}:fontcolor=${textColor}:x=(w-text_w)/2:y=(h-text_h)/2:enable='${enable}'`;
-                filterComplex.push(`${currentOutput}${textFilter}[flash${filterIndex}]`);
-                currentOutput = `[flash${filterIndex}]`;
-                filterIndex++;
+                popOverlayFilters.push(boxFilter, textFilter);
             });
         }
 
@@ -318,6 +312,7 @@ class FFmpegBuilder {
         if (showConfigOverlay) {
             const overlayFilters = this.buildConfigOverlayFilter({
                 videoFormat,
+                text,
                 width,
                 height,
                 toneFrequency: clampedToneFrequency,
@@ -338,6 +333,14 @@ class FFmpegBuilder {
                     filterIndex++;
                 });
             }
+        }
+
+        if (popOverlayFilters.length > 0) {
+            popOverlayFilters.forEach(popFilter => {
+                filterComplex.push(`${currentOutput}${popFilter}[flash${filterIndex}]`);
+                currentOutput = `[flash${filterIndex}]`;
+                filterIndex++;
+            });
         }
 
         // For interlaced formats, add proper interlacing filters
@@ -634,15 +637,20 @@ class FFmpegBuilder {
             }
         }
 
-        const idLine = channelInfo.pop.length > 0
-            ? channelInfo.pop.join(', ')
-            : '--';
-        lines.push(`▌ ID: ${idLine}`);
-
-        const forced400Line = channelInfo.force400.length > 0
+        const forceLine = channelInfo.force400.length > 0
             ? channelInfo.force400.join(', ')
             : '--';
-        lines.push(`▌ 400Hz ID: ${forced400Line}`);
+        lines.push(`▌ 400Hz: ${forceLine}`);
+
+        const cycleLine = channelInfo.cycle.length > 0
+            ? channelInfo.cycle.join(', ')
+            : '--';
+        lines.push(`▌ Cycle ID: ${cycleLine}`);
+
+        const popLine = channelInfo.pop.length > 0
+            ? channelInfo.pop.join(', ')
+            : '--';
+        lines.push(`▌ Pop ID: ${popLine}`);
 
         const cleanedLines = lines
             .map(line => typeof line === 'string' ? line.trim() : '')
@@ -780,16 +788,18 @@ class FFmpegBuilder {
 
             if (popFlag) {
                 pop.push(label);
-            } else {
-                baseTone.push(label);
             }
-
             if (cycleFlag) {
                 cycle.push(label);
             }
 
             if (forceFlag) {
                 force400.push(label);
+            }
+
+            const includeInBase = !popFlag && !forceFlag;
+            if (includeInBase) {
+                baseTone.push(label);
             }
         }
 
