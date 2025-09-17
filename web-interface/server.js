@@ -28,6 +28,8 @@ let savedSettings = {
     audioLevelDb: 0,
     audioChannels: 2,
     audioChannelMap: [true, true, false, false, false, false, false, false],
+    audioChannelIdCycle: new Array(8).fill(false),
+    audioChannelForce400: new Array(8).fill(false),
     videoFormat: '1080i50'
 };
 

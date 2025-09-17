@@ -50,6 +50,9 @@ class BroadcastController {
         this.audioPresetValues = this.tonePresetButtons.map(btn => parseInt(btn.dataset.audioPreset, 10));
         this.audioChannelContainer = document.getElementById('audioChannelToggles');
         this.audioChannelToggles = [];
+        this.audioChannelIdCycleToggles = [];
+        this.audioChannelForce400Toggles = [];
+        this.pendingAudioChannelOptions = null;
 
         // Action buttons
         this.previewBtn = document.getElementById('previewBtn');
@@ -234,6 +237,12 @@ class BroadcastController {
         if (audioLevelDb === '-0') {
             audioLevelDb = '0';
         }
+        const audioChannelIdCycle = this.audioChannelIdCycleToggles.length > 0
+            ? this.audioChannelIdCycleToggles.map(cb => cb.checked)
+            : [];
+        const audioChannelForce400 = this.audioChannelForce400Toggles.length > 0
+            ? this.audioChannelForce400Toggles.map(cb => cb.checked)
+            : [];
 
         return {
             background: backgroundValue,
@@ -250,6 +259,8 @@ class BroadcastController {
             audioChannelMap: channelMap,
             audioFreq: parseInt(this.audioFreqSlider.value),
             audioLevelDb,
+            audioChannelIdCycle,
+            audioChannelForce400,
             videoFormat: this.videoFormatSelect.value,
             showClock: this.showClockCheckbox.checked,
             clockPosition: this.selectedClockPosition
@@ -470,27 +481,71 @@ class BroadcastController {
 
     renderAudioChannelToggles(metadata) {
         this.audioChannelContainer.innerHTML = '';
-        this.audioChannelToggles = metadata.map((meta, index) => {
-            const wrapper = document.createElement('label');
+        this.audioChannelToggles = [];
+        this.audioChannelIdCycleToggles = [];
+        this.audioChannelForce400Toggles = [];
+
+        metadata.forEach((meta, index) => {
+            const wrapper = document.createElement('div');
             wrapper.className = 'channel-toggle';
+
+            const mainLabel = document.createElement('label');
+            mainLabel.className = 'channel-toggle-main';
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.dataset.channelIndex = index;
             checkbox.checked = index < 2;
-            checkbox.addEventListener('change', () => this.handleAudioChannelToggle(checkbox));
+            checkbox.addEventListener('change', () => {
+                this.handleAudioChannelToggle(checkbox);
+                this.updateAudioChannelOptionStateFor(index);
+            });
 
             const span = document.createElement('span');
             span.textContent = meta.label;
 
-            wrapper.appendChild(checkbox);
-            wrapper.appendChild(span);
+            mainLabel.appendChild(checkbox);
+            mainLabel.appendChild(span);
+            wrapper.appendChild(mainLabel);
+
+            const optionsRow = document.createElement('div');
+            optionsRow.className = 'channel-option-row';
+
+            const idCycleLabel = document.createElement('label');
+            idCycleLabel.className = 'channel-option';
+            const idCycleCheckbox = document.createElement('input');
+            idCycleCheckbox.type = 'checkbox';
+            idCycleCheckbox.dataset.channelIndex = index;
+            idCycleCheckbox.addEventListener('change', () => this.handleAudioChannelOptionChange(index));
+            idCycleLabel.appendChild(idCycleCheckbox);
+            idCycleLabel.appendChild(document.createTextNode('ID cycle −20 dB'));
+
+            const forceLabel = document.createElement('label');
+            forceLabel.className = 'channel-option';
+            const forceCheckbox = document.createElement('input');
+            forceCheckbox.type = 'checkbox';
+            forceCheckbox.dataset.channelIndex = index;
+            forceCheckbox.addEventListener('change', () => this.handleAudioChannelOptionChange(index));
+            forceLabel.appendChild(forceCheckbox);
+            forceLabel.appendChild(document.createTextNode('Force 400 Hz'));
+
+            optionsRow.appendChild(idCycleLabel);
+            optionsRow.appendChild(forceLabel);
+            wrapper.appendChild(optionsRow);
             this.audioChannelContainer.appendChild(wrapper);
 
-            return checkbox;
+            this.audioChannelToggles.push(checkbox);
+            this.audioChannelIdCycleToggles.push(idCycleCheckbox);
+            this.audioChannelForce400Toggles.push(forceCheckbox);
         });
 
         this.applyPendingAudioChannelMap();
+
+        if (this.pendingAudioChannelOptions) {
+            this.applyAudioChannelOptions(this.pendingAudioChannelOptions);
+        } else {
+            this.updateAudioChannelOptionStates();
+        }
     }
 
     applyAudioChannelMap(channelMap) {
@@ -501,6 +556,7 @@ class BroadcastController {
 
         this.audioChannelToggles.forEach((checkbox, index) => {
             checkbox.checked = Boolean(channelMap[index]);
+            this.updateAudioChannelOptionStateFor(index);
         });
 
         this.ensureMinimumAudioChannels();
@@ -513,6 +569,7 @@ class BroadcastController {
         } else {
             this.ensureMinimumAudioChannels();
         }
+        this.updateAudioChannelOptionStates();
     }
 
     ensureMinimumAudioChannels() {
@@ -522,6 +579,57 @@ class BroadcastController {
                 cb.checked = true;
             });
         }
+        this.updateAudioChannelOptionStates();
+    }
+
+    applyAudioChannelOptions(options = {}) {
+        const idCycle = Array.isArray(options.idCycle) ? options.idCycle : [];
+        const force400 = Array.isArray(options.force400) ? options.force400 : [];
+
+        if (this.audioChannelIdCycleToggles.length === 0 || this.audioChannelForce400Toggles.length === 0) {
+            this.pendingAudioChannelOptions = {
+                idCycle: idCycle.slice(),
+                force400: force400.slice()
+            };
+            return;
+        }
+
+        this.audioChannelIdCycleToggles.forEach((checkbox, index) => {
+            checkbox.checked = Boolean(idCycle[index]);
+        });
+        this.audioChannelForce400Toggles.forEach((checkbox, index) => {
+            checkbox.checked = Boolean(force400[index]);
+        });
+
+        this.pendingAudioChannelOptions = null;
+        this.updateAudioChannelOptionStates();
+    }
+
+    updateAudioChannelOptionStateFor(index) {
+        const mainToggle = this.audioChannelToggles[index];
+        const enabled = mainToggle ? mainToggle.checked : false;
+        const idCycleToggle = this.audioChannelIdCycleToggles[index];
+        const forceToggle = this.audioChannelForce400Toggles[index];
+
+        if (idCycleToggle) {
+            idCycleToggle.disabled = !enabled;
+        }
+        if (forceToggle) {
+            forceToggle.disabled = !enabled;
+        }
+    }
+
+    updateAudioChannelOptionStates() {
+        this.audioChannelToggles.forEach((_, index) => this.updateAudioChannelOptionStateFor(index));
+    }
+
+    handleAudioChannelOptionChange(index) {
+        if (typeof index === 'number') {
+            this.updateAudioChannelOptionStateFor(index);
+        }
+        this.previewCommand();
+        this.saveSettings();
+        this.handleConfigChange();
     }
 
     setAudioLevelValue(levelDb) {
@@ -566,14 +674,17 @@ class BroadcastController {
     }
 
     handleAudioChannelToggle(checkbox) {
+        const index = Number.parseInt(checkbox.dataset.channelIndex, 10);
         if (!checkbox.checked) {
             const stillActive = this.audioChannelToggles.some(cb => cb.checked);
             if (!stillActive) {
                 checkbox.checked = true;
+                this.updateAudioChannelOptionStateFor(index);
                 return;
             }
         }
 
+        this.updateAudioChannelOptionStateFor(index);
         this.previewCommand();
         this.saveSettings();
         this.handleConfigChange();
@@ -709,6 +820,11 @@ class BroadcastController {
         if (Array.isArray(config.audioChannelMap)) {
             this.applyAudioChannelMap(config.audioChannelMap);
         }
+
+        this.applyAudioChannelOptions({
+            idCycle: config.audioChannelIdCycle,
+            force400: config.audioChannelForce400
+        });
 
         this.setAudioLevelValue(config.audioLevelDb);
 
@@ -897,6 +1013,11 @@ class BroadcastController {
                 ? settings.audioChannelMap
                 : new Array(Math.max(2, Number(settings.audioChannels) || 2)).fill(true);
             this.applyAudioChannelMap(initialChannelMap);
+
+            this.applyAudioChannelOptions({
+                idCycle: settings.audioChannelIdCycle,
+                force400: settings.audioChannelForce400
+            });
 
             this.audioFreqSlider.value = settings.audioFreq || 1000;
             this.setAudioLevelValue(settings.audioLevelDb);

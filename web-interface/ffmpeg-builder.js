@@ -26,6 +26,8 @@ class FFmpegBuilder {
             audioLevelDb = 0,
             audioChannels = 2,
             audioChannelMap = null,
+            audioChannelIdCycle = [],
+            audioChannelForce400 = [],
             animation = null,
             videoFormat = '1080i50',
             showClock = false,
@@ -85,14 +87,29 @@ class FFmpegBuilder {
         const toneFrequency = Number.isFinite(normalizedAudioFreq) ? normalizedAudioFreq : 1000;
         const clampedToneFrequency = Math.max(20, Math.min(20000, toneFrequency));
         const channelMap = this.resolveAudioChannelMap(audioChannelMap, audioChannels);
+        const idCycleFlags = this.normalizeChannelOption(audioChannelIdCycle);
+        const force400Flags = this.normalizeChannelOption(audioChannelForce400);
         const requiresExtendedLayout = channelMap.some((isActive, index) => isActive && index >= 2);
         const decklinkAudioChannels = requiresExtendedLayout ? 8 : 2;
         const audioLayout = this.getAudioChannelLayout(decklinkAudioChannels);
-        const toneExpr = `(sin(2*PI*${clampedToneFrequency}*t))`;
+        const idCycleExpr = this.getIdCycleExpression();
         const silentExpr = '(0.000001)';
-        const channelExprs = new Array(decklinkAudioChannels)
-            .fill(0)
-            .map((_, idx) => (channelMap[idx] ? toneExpr : silentExpr))
+        const channelExprs = channelMap
+            .slice(0, decklinkAudioChannels)
+            .map((isActive, idx) => {
+                if (!isActive) {
+                    return silentExpr;
+                }
+
+                const channelFreq = force400Flags[idx] ? 400 : clampedToneFrequency;
+                let expr = `sin(2*PI*${channelFreq}*t)`;
+
+                if (idCycleFlags[idx]) {
+                    expr = `(${expr}*${idCycleExpr})`;
+                }
+
+                return expr;
+            })
             .join('|');
         cmd.push('-f', 'lavfi', '-i', `aevalsrc=exprs=${channelExprs}:sample_rate=48000:channel_layout=${audioLayout}`);
 
@@ -397,6 +414,22 @@ class FFmpegBuilder {
         }
 
         return normalizedMap;
+    }
+
+    normalizeChannelOption(optionArray) {
+        const normalized = Array.isArray(optionArray)
+            ? optionArray.slice(0, 8).map(Boolean)
+            : [];
+
+        while (normalized.length < 8) {
+            normalized.push(false);
+        }
+
+        return normalized;
+    }
+
+    getIdCycleExpression() {
+        return 'if(lt(mod(t,2),1),1,0.1)';
     }
 
     resolveAudioVolume(levelDb) {
