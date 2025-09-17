@@ -126,24 +126,30 @@ class FFmpegBuilder {
         if (showClock) {
             const clockPos = this.getClockPosition(clockPosition);
 
-            // For all formats, n increments at the actual output framerate
-            // 1080i50 outputs at 25fps (with interlaced fields)
-            // 720p50 outputs at 50fps
-            // So we just use mod(n, fps) for all formats
-            const clockFilter = `drawtext=text='%{gmtime} | %{eif\\:mod(n\\,${fps})\\:d\\:02}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
+            // For all formats, use the actual frame counter
+            // Interlaced formats at 50fps will show 0-49 naturally
+            // Timecode display with seconds and frames
+            // n/25 gives us total seconds, mod 60 gives seconds within minute
+            const clockFilter = `drawtext=text='TC\\: %{eif\\:n/25/60\\:d\\:02}\\\\:%{eif\\:mod(n/25\\,60)\\:d\\:02}\\\\:%{eif\\:mod(n\\,25)\\:d\\:02}':fontfile='${this.fontPath}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=5:x=${clockPos.x}:y=${clockPos.y}`;
 
             filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
             currentOutput = `[clock${filterIndex}]`;
             filterIndex++;
         }
 
-        // Rename final output to [v]
-        if (currentOutput !== '[0:v]') {
-            filterComplex[filterComplex.length - 1] = filterComplex[filterComplex.length - 1].replace(/\[[^\]]+\]$/, '[v]');
-            currentOutput = '[v]';
+        // For interlaced formats, add proper interlacing filters
+        if (videoFormat.includes('i')) {
+            // Add fps=50,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff for optimal interlacing
+            filterComplex.push(`${currentOutput}fps=50,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff[v]`);
         } else {
-            filterComplex.push('[0:v]copy[v]');
-            currentOutput = '[v]';
+            // Rename final output to [v]
+            if (currentOutput !== '[0:v]') {
+                filterComplex[filterComplex.length - 1] = filterComplex[filterComplex.length - 1].replace(/\[[^\]]+\]$/, '[v]');
+                currentOutput = '[v]';
+            } else {
+                filterComplex.push('[0:v]copy[v]');
+                currentOutput = '[v]';
+            }
         }
 
         // Add filter complex
@@ -246,10 +252,11 @@ class FFmpegBuilder {
     getVideoFormatSettings(format) {
         const formats = {
             '1080i50': [
-                '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '25',
-                '-field_order', 'tt', '-flags', '+ilme+ildct',
+                '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25', '-field_order', 'tt',
                 '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-                '-f', 'decklink', '-s', '1920x1080', 'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hi50', '-raw_format', 'uyvy422',
+                '-audio_depth', '16', '-channels', '2',
+                'UltraStudio Mini Monitor'
             ],
             '1080p25': [
                 '-c:v', 'v210', '-pix_fmt', 'yuv422p10le', '-r', '25',
@@ -309,13 +316,14 @@ class FFmpegBuilder {
 
     getFrameRate(format) {
         // Extract the frame rate from the format string
+        // For interlaced formats, we use 50fps to generate all fields
         const frameRates = {
-            '1080i50': 25,  // Interlaced 50Hz = 25 fps
+            '1080i50': 50,  // Generate at 50fps, will be interlaced to 25fps
             '1080p25': 25,
             '1080p30': 30,
             '720p50': 50,
             '720p60': 60,
-            '576i50': 25   // Interlaced 50Hz = 25 fps
+            '576i50': 50    // Generate at 50fps, will be interlaced to 25fps
         };
         return frameRates[format] || 25;
     }
