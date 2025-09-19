@@ -21,6 +21,7 @@ class BroadcastController {
         this.checkServerStatus();
         this.updateControls();
         this.updateOverlayControlsState();
+        this.updateClockControlsState();
     }
 
     initializeElements() {
@@ -50,6 +51,7 @@ class BroadcastController {
         this.audioFreqValue = document.getElementById('audioFreqValue');
         this.audioLevelSelect = document.getElementById('audioLevel');
         this.videoFormatSelect = document.getElementById('videoFormat');
+        this.decklinkDeviceSelect = document.getElementById('decklinkDevice');
         this.tonePresetButtons = Array.from(document.querySelectorAll('.tone-preset-btn'));
         this.audioPresetValues = this.tonePresetButtons.map(btn => parseInt(btn.dataset.audioPreset, 10));
         this.audioChannelContainer = document.getElementById('audioChannelToggles');
@@ -81,6 +83,7 @@ class BroadcastController {
 
         // Clock elements
         this.showClockCheckbox = document.getElementById('showClock');
+        this.clockLatencyInput = document.getElementById('clockLatencyMs');
         this.clockPositionsGrid = document.getElementById('clockPositions');
         this.showConfigOverlayCheckbox = document.getElementById('showConfigOverlay');
         this.overlayFontSizeSlider = document.getElementById('overlayFontSize');
@@ -154,6 +157,7 @@ class BroadcastController {
             this.previewCommand();
             this.saveSettings();
             this.handleConfigChange();
+            this.updateClockControlsState();
         });
 
         this.showConfigOverlayCheckbox.addEventListener('change', () => {
@@ -165,9 +169,12 @@ class BroadcastController {
             this.backgroundSelect, this.textInput, this.textPositionSelect, this.fontSizeSlider,
             this.fontFamilySelect, this.textWeightSelect, this.textColorSelect, this.textBackgroundSelect,
             this.showLogoCheckbox, this.logoSelect, this.logoPosition, this.animationSelect,
-            this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect,
+            this.audioFreqSlider, this.audioLevelSelect, this.videoFormatSelect, this.decklinkDeviceSelect,
             this.overlayPositionSelect, this.overlayFontSizeSlider
         ];
+        if (this.clockLatencyInput) {
+            autoPreviewElements.push(this.clockLatencyInput);
+        }
         if (this.flashOverlayOffsetSlider) {
             autoPreviewElements.push(this.flashOverlayOffsetSlider);
         }
@@ -306,6 +313,12 @@ class BroadcastController {
         }
     }
 
+    updateClockControlsState() {
+        if (this.clockLatencyInput) {
+            this.clockLatencyInput.disabled = !this.showClockCheckbox.checked;
+        }
+    }
+
     getConfig() {
         const channelMap = this.audioChannelToggles.length > 0
             ? this.audioChannelToggles.map(cb => cb.checked)
@@ -357,7 +370,9 @@ class BroadcastController {
             audioChannelFlash,
             audioChannelForce400,
             videoFormat: this.videoFormatSelect.value,
+            decklinkDevice: this.decklinkDeviceSelect ? (this.decklinkDeviceSelect.value || null) : null,
             showClock: this.showClockCheckbox.checked,
+            clockLatencyMs: this.clockLatencyInput ? parseInt(this.clockLatencyInput.value, 10) : null,
             clockPosition: this.selectedClockPosition,
             showConfigOverlay: this.showConfigOverlayCheckbox ? this.showConfigOverlayCheckbox.checked : false,
             configOverlayFontSize: this.overlayFontSizeSlider ? parseInt(this.overlayFontSizeSlider.value, 10) : null,
@@ -974,10 +989,23 @@ class BroadcastController {
 
         // Apply video format
         if (config.videoFormat) this.videoFormatSelect.value = config.videoFormat;
+        if (this.decklinkDeviceSelect) {
+            const deviceValue = config.decklinkDevice ? String(config.decklinkDevice) : '';
+            if (deviceValue) {
+                this.ensureDecklinkDeviceOption(deviceValue);
+            }
+            this.decklinkDeviceSelect.value = deviceValue;
+        }
 
         // Apply clock
         if (config.showClock !== undefined) {
             this.showClockCheckbox.checked = Boolean(config.showClock);
+        }
+        if (this.clockLatencyInput && config.clockLatencyMs !== undefined) {
+            const latencyValue = Number(config.clockLatencyMs);
+            if (Number.isFinite(latencyValue)) {
+                this.clockLatencyInput.value = latencyValue;
+            }
         }
         if (config.clockPosition) {
             const silentClockUpdate = skipPreview && skipSave;
@@ -1003,6 +1031,7 @@ class BroadcastController {
             }
         }
         this.updateOverlayControlsState();
+        this.updateClockControlsState();
         this.updateRangeValues();
 
         // Update UI
@@ -1133,6 +1162,9 @@ class BroadcastController {
             const videoFormats = await fetch('/api/video-formats').then(r => r.json());
             this.populateSelect(this.videoFormatSelect, videoFormats);
 
+            const decklinkDevices = await fetch('/api/decklink-sinks').then(r => r.json());
+            this.populateDecklinkSelect(decklinkDevices);
+
             // Load audio channel metadata
             const audioChannels = await fetch('/api/audio-channels').then(r => r.json());
             this.renderAudioChannelToggles(audioChannels);
@@ -1166,6 +1198,49 @@ class BroadcastController {
 
         if (select.options.length > 0) {
             select.selectedIndex = 0;
+        }
+    }
+
+    populateDecklinkSelect(devices) {
+        if (!this.decklinkDeviceSelect) {
+            return;
+        }
+
+        const priorValue = this.decklinkDeviceSelect.value;
+        this.decklinkDeviceSelect.innerHTML = '<option value="">Auto-select (first detected)</option>';
+
+        devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.id;
+            option.textContent = device.name;
+            this.decklinkDeviceSelect.appendChild(option);
+        });
+
+        if (priorValue) {
+            const hasMatch = Array.from(this.decklinkDeviceSelect.options)
+                .some(opt => opt.value === priorValue);
+            if (hasMatch) {
+                this.decklinkDeviceSelect.value = priorValue;
+                return;
+            }
+        }
+
+        this.decklinkDeviceSelect.selectedIndex = 0;
+    }
+
+    ensureDecklinkDeviceOption(deviceName) {
+        if (!this.decklinkDeviceSelect || !deviceName) {
+            return;
+        }
+
+        const exists = Array.from(this.decklinkDeviceSelect.options)
+            .some(opt => opt.value === deviceName);
+
+        if (!exists) {
+            const option = document.createElement('option');
+            option.value = deviceName;
+            option.textContent = deviceName;
+            this.decklinkDeviceSelect.appendChild(option);
         }
     }
 

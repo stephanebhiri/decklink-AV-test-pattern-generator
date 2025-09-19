@@ -1,0 +1,12 @@
+# OS / tooling artifacts
+.DS_Store
+
+# Local archives
+PLAYTOBMD-backup-*.zip
+
+# Generated uploads
+web-interface/uploads/*
+!web-interface/uploads/.gitignore
+
+# Node modules cache (already gitignored by install, but keep explicit)
+web-interface/node_modules/

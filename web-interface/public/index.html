@@ -35,7 +35,7 @@
                             <option value="">Select an uploaded background...</option>
                         </select>
                         <button type="button" id="uploadBgBtn" class="btn btn-secondary">📁 Upload Image</button>
-                        <input type="file" id="backgroundFile" accept=".png,.jpg,.jpeg" style="display: none;">
+                        <input type="file" id="backgroundFile" accept=".png,.jpg,.jpeg,.svg" style="display: none;">
                     </div>
                     <div id="backgroundPreview" class="background-preview" style="display: none;"></div>
                 </div>
@@ -196,6 +196,13 @@
                         <option value="1080i50">1080i50 (1920x1080 interlaced)</option>
                     </select>
                 </div>
+                <div class="control-group">
+                    <label for="decklinkDevice">DeckLink output:</label>
+                    <select id="decklinkDevice">
+                        <option value="">Auto-select (first detected)</option>
+                    </select>
+                    <div class="control-hint">Select the card/port to feed; leave on auto to use the first available sink.</div>
+                </div>
             </section>
 
             <!-- Overlay Section -->
@@ -229,6 +236,11 @@
                         <input type="checkbox" id="showClock">
                         Show GMT clock + frame + ms
                     </label>
+                </div>
+                <div class="control-group">
+                    <label for="clockLatencyMs">Clock SDI lead (ms):</label>
+                    <input type="number" id="clockLatencyMs" min="0" max="2000" step="10" value="200">
+                    <div class="control-hint">Shift the on-air clock forward to match measured pipeline delay.</div>
                 </div>
                 <div class="control-group">
                     <label for="clockPosition">Clock position:</label>

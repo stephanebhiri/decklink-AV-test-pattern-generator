@@ -1,15 +1,23 @@
 // FFmpeg Command Builder for ACTUA Broadcast Generator
 const path = require('path');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 
 class FFmpegBuilder {
     constructor() {
-        this.ffmpegPath = path.join(process.env.HOME, 'ffmpeg-4.4.4', 'ffmpeg');
+        this.ffmpegPath = path.join(process.env.HOME, 'ffmpeg-4.4.4', 'build', 'bin', 'ffmpeg');
         this.picturesPath = path.join(process.env.HOME, 'Pictures');
         this.logoPath = path.join(this.picturesPath, 'PNG-actua', 'actua.png');
         this.barsPath = path.join(this.picturesPath, 'bars.png');
         this.resolutionTestPath = path.join(this.picturesPath, 'resolution_test.png');
         this.fontPath = '/System/Library/Fonts/SFNSMono.ttf';
+        this.cachedDecklinkSinks = null;
+        this.defaultDecklinkName = 'UltraStudio Mini Monitor';
+        this.clockLatencyMs = 200;
+        this.ntpOffsetMs = 0;
+        this.ntpDispersionMs = null;
+        this.ntpSource = 'system clock';
+        this.ntpLastSync = null;
         this.fontOptions = {
             sf_mono: {
                 type: 'fontfile',
@@ -73,7 +81,9 @@ class FFmpegBuilder {
             showConfigOverlay = false,
             configOverlayFontSize = null,
             configOverlayPosition = 'top-left',
-            flashOverlayOffset = 0
+            flashOverlayOffset = 0,
+            decklinkDevice = null,
+            clockLatencyMs = this.clockLatencyMs
         } = config;
 
         // Calculate text position based on 9-grid system
@@ -89,6 +99,7 @@ class FFmpegBuilder {
         const fps = this.getFrameRate(videoFormat);
         const { width, height } = this.getResolution(videoFormat);
         const resolution = `${width}x${height}`;
+        const squareBlockSize = Math.max(40, Math.round(Math.min(width, height) * 0.09));
 
         // Background input
         if (background === 'bars') {
@@ -112,15 +123,24 @@ class FFmpegBuilder {
         let nextInput = 1;
 
         // Animation input (if needed)
+        let animationInputLabel = null;
         if (animation === 'square') {
-            cmd.push('-f', 'lavfi', '-i', `color=c=white:size=100x100:rate=${fps}`);
+            const squareColour = '0xff2020';
+            cmd.push('-f', 'lavfi', '-i', `color=c=${squareColour}:size=${squareBlockSize}x${squareBlockSize}:rate=${fps}`);
+            animationInputLabel = `[${nextInput}:v]`;
+            nextInput++;
+        } else if (animation === 'staircase_pulse') {
+            cmd.push('-f', 'lavfi', '-i', `color=c=black@0:size=${resolution}:rate=${fps}`);
+            animationInputLabel = `[${nextInput}:v]`;
             nextInput++;
         }
 
         // Logo input
+        let logoInputLabel = null;
         if (showLogo) {
             const logoPath = logoFile ? path.join(process.env.HOME, 'PLAYTOBMD', 'web-interface', 'uploads', logoFile) : this.logoPath;
             cmd.push('-i', logoPath);
+            logoInputLabel = `[${nextInput}:v]`;
             nextInput++;
         }
 
@@ -275,17 +295,49 @@ class FFmpegBuilder {
             });
         }
 
-        if (animation === 'square') {
-            filterComplex.push(`${currentOutput}[1:v]overlay=x='t*25':y=490[anim${filterIndex}]`);
-            currentOutput = `[anim${filterIndex}]`;
+        if (animation === 'square' && animationInputLabel) {
+            const maxX = Math.max(0, width - squareBlockSize);
+            const maxY = Math.max(0, height - squareBlockSize);
+            const frameRate = Math.max(1, fps);
+            const horizontalSpeed = maxX > 0 ? (8 * frameRate).toFixed(2) : '0';
+            const verticalSpeed = maxY > 0 ? (6 * frameRate).toFixed(2) : '0';
+            const horizontalExpr = maxX > 0
+                ? `abs(mod(t*${horizontalSpeed},${(maxX * 2).toFixed(2)})-${maxX})`
+                : '0';
+            const verticalExpr = maxY > 0
+                ? `abs(mod(t*${verticalSpeed},${(maxY * 2).toFixed(2)})-${maxY})`
+                : '0';
+            const squareOverlayLabel = `[anim${filterIndex}]`;
+            filterComplex.push(`${currentOutput}${animationInputLabel}overlay=x='${horizontalExpr}':y='${verticalExpr}'${squareOverlayLabel}`);
+            currentOutput = squareOverlayLabel;
+            filterIndex++;
+        } else if (animation === 'staircase_pulse' && animationInputLabel) {
+            const stepCount = 6;
+            const stairBaseLabel = `[anim${filterIndex}]`;
+            const stepExpr = `floor(mod(((Y/${height})*${stepCount})+(T*0.35),${stepCount}))`;
+            const stepScale = Math.round(180 / Math.max(1, stepCount - 1));
+            const luminanceExpr = `${60} + ${stepScale}*${stepExpr}`;
+            const alphaExpr = `if(gt(${stepExpr},0),200,120)`;
+            filterComplex.push(`${animationInputLabel}format=rgba,geq=r='${luminanceExpr}':g='${luminanceExpr}':b='${luminanceExpr}':a='${alphaExpr}'${stairBaseLabel}`);
+            filterIndex++;
+
+            const pulseLabel = `[anim${filterIndex}]`;
+            const pulseSpeed = (0.45 * width).toFixed(2);
+            const pulseWidth = Math.max(4, Math.round(width * 0.012));
+            filterComplex.push(`${stairBaseLabel}drawbox=x='mod(t*${pulseSpeed},${width})':y=0:w=${pulseWidth}:h=${height}:color=white@0.75:t=fill${pulseLabel}`);
+            filterIndex++;
+
+            const overlayLabel = `[anim${filterIndex}]`;
+            filterComplex.push(`${currentOutput}${pulseLabel}overlay=0:0:shortest=1${overlayLabel}`);
+            currentOutput = overlayLabel;
             filterIndex++;
         }
 
         // Add logo
-        if (showLogo) {
-            const logoInput = animation === 'square' ? '[2:v]' : '[1:v]';
-            filterComplex.push(`${currentOutput}${logoInput}overlay=${logoPos.x}:${logoPos.y}[logo${filterIndex}]`);
-            currentOutput = `[logo${filterIndex}]`;
+        if (showLogo && logoInputLabel) {
+            const logoOverlayLabel = `[logo${filterIndex}]`;
+            filterComplex.push(`${currentOutput}${logoInputLabel}overlay=${logoPos.x}:${logoPos.y}${logoOverlayLabel}`);
+            currentOutput = logoOverlayLabel;
             filterIndex++;
         }
 
@@ -293,30 +345,24 @@ class FFmpegBuilder {
         if (showClock) {
             const clockPos = this.getClockPosition(clockPosition);
             const clockFontSize = Math.max(28, Math.round(48 * (height / 1080)));
-            const clockLineSpacing = Math.max(4, Math.round(clockFontSize * 0.125));
             const clockBoxBorder = Math.max(3, Math.round(clockFontSize * 0.1));
 
-            const startEpochMs = Date.now();
-            const baseSeconds = Math.floor(startEpochMs / 1000);
-            const datePrefix = new Date(startEpochMs).toISOString().split('T')[0];
+            const lineHeight = Math.max(clockFontSize + 4, Math.round(clockFontSize * 1.2));
+            const clockTiming = this.computeClockTimingData({ fps, latencyMs: clockLatencyMs });
+            const escapedLines = clockTiming.lines.map(line => this.escapeDrawtextText(line));
+            const totalLines = escapedLines.length;
 
-            const totalSecondsExpr = `(${baseSeconds}+t)`;
-            const hoursExpr = `%{eif\\:floor(${totalSecondsExpr}/3600)-24*floor(${totalSecondsExpr}/86400)\\:d\\:02}`;
-            const minutesExpr = `%{eif\\:floor(${totalSecondsExpr}/60)-60*floor(${totalSecondsExpr}/3600)\\:d\\:02}`;
-            const secondsExpr = `%{eif\\:floor(${totalSecondsExpr})-60*floor(${totalSecondsExpr}/60)\\:d\\:02}`;
+            escapedLines.forEach((lineText, lineIndex) => {
+                const placementIndex = clockPosition.startsWith('bottom')
+                    ? totalLines - 1 - lineIndex
+                    : lineIndex;
+                const yExpr = this.resolveClockLineY(clockPos.y, placementIndex, totalLines, lineHeight, clockPosition);
+                const clockFilter = `drawtext=text='${lineText}':fontfile='${this.fontPath}':fontsize=${clockFontSize}:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=${clockBoxBorder}:x=${clockPos.x}:y=${yExpr}`;
 
-            const displayFps = fps;
-            const frameExpr = `%{eif\\:mod(n\\,${displayFps})\\:d\\:02}`;
-            const millisecondsExpr = `%{eif\\:floor(1000*mod(t\\,1))\\:d\\:03}`;
-            const msIndent = ' '.repeat(Math.max(6, Math.round(clockFontSize * 0.25) + 4));
-            const clockText = `${datePrefix} ${hoursExpr}\\:${minutesExpr}\\:${secondsExpr}\\:${frameExpr}\n${msIndent}Ms ${millisecondsExpr}`;
-
-            // Overlay real-time GMT date/time with frame count and millisecond line
-            const clockFilter = `drawtext=text='${clockText}':fontfile='${this.fontPath}':fontsize=${clockFontSize}:fontcolor=white:line_spacing=${clockLineSpacing}:box=1:boxcolor=black@0.5:boxborderw=${clockBoxBorder}:x=${clockPos.x}:y=${clockPos.y}`;
-
-            filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
-            currentOutput = `[clock${filterIndex}]`;
-            filterIndex++;
+                filterComplex.push(`${currentOutput}${clockFilter}[clock${filterIndex}]`);
+                currentOutput = `[clock${filterIndex}]`;
+                filterIndex++;
+            });
         }
 
         if (showConfigOverlay) {
@@ -378,7 +424,7 @@ class FFmpegBuilder {
 
         // Audio input mapping based on which inputs are active
         let audioInputIndex = 0;
-        if (animation === 'square') audioInputIndex++; // Skip color input for square
+        if (animation === 'square' || animation === 'staircase_pulse') audioInputIndex++; // Skip animation input
         if (showLogo) audioInputIndex++; // Skip logo input
         audioInputIndex++; // Audio is always last
 
@@ -393,9 +439,9 @@ class FFmpegBuilder {
         cmd.push('-c:a', 'pcm_s16le', '-ar', '48000', '-ac', decklinkAudioChannels.toString(), '-channel_layout', audioLayout);
 
         // Output settings based on video format (append DeckLink options including preroll)
-        const formatSettings = [...this.getVideoFormatSettings(videoFormat)];
+        const formatSettings = [...this.getVideoFormatSettings(videoFormat, decklinkDevice)];
         const targetDevice = formatSettings.pop();
-        cmd.push(...formatSettings, '-preroll', '0.5', '-audio_depth', '16', '-channels', decklinkAudioChannels.toString(), targetDevice);
+        cmd.push(...formatSettings, '-audio_depth', '16', '-channels', decklinkAudioChannels.toString(), targetDevice);
 
         return cmd;
     }
@@ -414,7 +460,8 @@ class FFmpegBuilder {
     getAvailableAnimations() {
         return [
             { id: null, name: 'None' },
-            { id: 'square', name: 'Moving Square' }
+            { id: 'square', name: 'Moving Square' },
+            { id: 'staircase_pulse', name: 'Staircase + Pulse (R&S)' }
         ];
     }
 
@@ -490,46 +537,41 @@ class FFmpegBuilder {
         ];
     }
 
-    getVideoFormatSettings(format) {
+    getVideoFormatSettings(format, requestedDevice) {
+        const deviceName = this.resolveDecklinkTarget(requestedDevice);
         const formats = {
             '1080i50': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25', '-field_order', 'tt',
-                '-f', 'decklink', '-format_code', 'Hi50', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hi50', '-raw_format', 'uyvy422'
             ],
             '1080i60': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '30', '-field_order', 'tt',
-                '-f', 'decklink', '-format_code', 'Hi60', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hi60', '-raw_format', 'uyvy422'
             ],
             '1080p25': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '25',
-                '-f', 'decklink', '-format_code', 'Hp25', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp25', '-raw_format', 'uyvy422'
             ],
             '1080p30': [
                 '-pix_fmt', 'uyvy422', '-s', '1920x1080', '-r', '30',
-                '-f', 'decklink', '-format_code', 'Hp30', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp30', '-raw_format', 'uyvy422'
             ],
             '720p50': [
                 '-pix_fmt', 'uyvy422', '-s', '1280x720', '-r', '50',
-                '-f', 'decklink', '-format_code', 'Hp50', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp50', '-raw_format', 'uyvy422'
             ],
             '720p60': [
                 '-pix_fmt', 'uyvy422', '-s', '1280x720', '-r', '60',
-                '-f', 'decklink', '-format_code', 'Hp60', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'Hp60', '-raw_format', 'uyvy422'
             ],
             '576i50': [
                 '-pix_fmt', 'uyvy422', '-s', '720x576', '-r', '25',
                 '-field_order', 'tt', '-flags', '+ilme+ildct',
-                '-f', 'decklink', '-format_code', 'pal', '-raw_format', 'uyvy422',
-                'UltraStudio Mini Monitor'
+                '-f', 'decklink', '-format_code', 'pal', '-raw_format', 'uyvy422'
             ]
         };
-        return formats[format] || formats['1080i50'];
+        const base = formats[format] || formats['1080i50'];
+        return [...base, deviceName];
     }
 
     getAudioChannelLayout(channels) {
@@ -545,6 +587,66 @@ class FFmpegBuilder {
         };
 
         return layoutMap[channels] || `${channels}c`;
+    }
+
+    getDecklinkSinks() {
+        if (Array.isArray(this.cachedDecklinkSinks) && this.cachedDecklinkSinks.length > 0) {
+            return this.cachedDecklinkSinks;
+        }
+
+        const fallback = [`${this.defaultDecklinkName} (1)`];
+        try {
+            const result = spawnSync(this.ffmpegPath, ['-hide_banner', '-sinks', 'decklink'], {
+                encoding: 'utf8',
+                env: process.env
+            });
+
+            if (result.status === 0 && typeof result.stdout === 'string') {
+                const matches = result.stdout
+                    .split('\n')
+                    .map(line => {
+                        const match = line.match(/\[(.+?)\]\s*$/);
+                        return match ? match[1].trim() : null;
+                    })
+                    .filter(Boolean);
+
+                if (matches.length > 0) {
+                    this.cachedDecklinkSinks = matches;
+                    return matches;
+                }
+            }
+        } catch (err) {
+            // Swallow errors and fall back to default.
+        }
+
+        this.cachedDecklinkSinks = fallback;
+        return fallback;
+    }
+
+    resolveDecklinkTarget(requestedDevice) {
+        const sinks = this.getDecklinkSinks();
+        const normalizedRequest = typeof requestedDevice === 'string' ? requestedDevice.trim() : '';
+
+        if (normalizedRequest) {
+            const exactMatch = sinks.find(name => name === normalizedRequest);
+            if (exactMatch) {
+                return exactMatch;
+            }
+
+            const prefixMatch = sinks.find(name => name.startsWith(normalizedRequest));
+            if (prefixMatch) {
+                return prefixMatch;
+            }
+
+            return normalizedRequest;
+        }
+
+        return sinks[0] || `${this.defaultDecklinkName} (1)`;
+    }
+
+    getDecklinkDevices() {
+        const sinks = this.getDecklinkSinks();
+        return sinks.map(name => ({ id: name, name }));
     }
 
     getAudioChannelMetadata() {
@@ -850,6 +952,179 @@ class FFmpegBuilder {
             .replace(/\n/g, '\\\\n')
             .replace(/'/g, "\\'")
             .replace(/:/g, '\\:');
+    }
+
+    setClockTimingInfo({ latencyMs, ntpOffsetMs, ntpSource, ntpDispersionMs, ntpTimestamp } = {}) {
+        if (Number.isFinite(latencyMs) && latencyMs >= 0) {
+            this.clockLatencyMs = latencyMs;
+        }
+
+        if (Number.isFinite(ntpOffsetMs)) {
+            this.ntpOffsetMs = ntpOffsetMs;
+        }
+
+        if (Number.isFinite(ntpDispersionMs)) {
+            this.ntpDispersionMs = ntpDispersionMs;
+        } else if (ntpDispersionMs === null) {
+            this.ntpDispersionMs = null;
+        }
+
+        if (typeof ntpSource === 'string' && ntpSource.trim().length > 0) {
+            this.ntpSource = ntpSource.trim();
+        }
+
+        if (Number.isFinite(ntpTimestamp)) {
+            this.ntpLastSync = ntpTimestamp;
+        } else if (ntpTimestamp === null) {
+            this.ntpLastSync = null;
+        }
+    }
+
+    computeClockTimingData({ fps, latencyMs }) {
+        const nowMs = Date.now();
+        const latencyValue = Number.isFinite(latencyMs)
+            ? latencyMs
+            : Number.isFinite(this.clockLatencyMs)
+                ? this.clockLatencyMs
+                : 0;
+        const ntpOffsetMs = Number.isFinite(this.ntpOffsetMs) ? this.ntpOffsetMs : 0;
+        const totalOffsetMs = latencyValue + ntpOffsetMs;
+        const baseSeconds = nowMs / 1000;
+        const baseSecondsExpr = `${baseSeconds.toFixed(6)}+t`;
+        const totalOffsetSeconds = totalOffsetMs / 1000;
+        const utcSecondsExpr = `(${baseSecondsExpr}+${totalOffsetSeconds.toFixed(6)})`;
+
+        const referenceUtcDate = new Date(nowMs + totalOffsetMs);
+        const utcDate = referenceUtcDate.toISOString().split('T')[0];
+
+        const localInfo = this.getLocalTimezoneInfo(referenceUtcDate);
+        const localSecondsExpr = `(${utcSecondsExpr}+${localInfo.offsetSeconds.toFixed(6)})`;
+        const localDate = this.formatLocalDateYMD(new Date(referenceUtcDate.getTime() + localInfo.offsetSeconds * 1000));
+
+        const utcComponents = this.buildClockComponents(utcSecondsExpr);
+        const localComponents = this.buildClockComponents(localSecondsExpr);
+        const frameExpr = this.buildFrameCounterExpr(fps);
+
+        const utcLine = `UTC ${utcDate} ${utcComponents.hms}:${frameExpr}.${utcComponents.millis}`;
+        const localLine = `${localInfo.label} ${localInfo.offsetLabel} ${localDate} ${localComponents.hms}:${frameExpr}.${localComponents.millis}`;
+
+        const ntpOffsetLabel = Number.isFinite(ntpOffsetMs)
+            ? `${ntpOffsetMs >= 0 ? '+' : ''}${ntpOffsetMs.toFixed(1)}ms`
+            : '0.0ms';
+        const dispersionLabel = Number.isFinite(this.ntpDispersionMs)
+            ? ` +/-${this.ntpDispersionMs.toFixed(1)}ms`
+            : '';
+        const syncSource = this.ntpSource || 'system clock';
+        const infoLine = `SNTP ${syncSource} offset ${ntpOffsetLabel}${dispersionLabel}`;
+
+        return {
+            lines: [infoLine, utcLine, localLine],
+            utcLine,
+            localLine,
+            syncLine: infoLine,
+            latencyMs: latencyValue,
+            ntpOffsetMs,
+            totalOffsetMs
+        };
+    }
+
+    buildClockComponents(totalSecondsExpr) {
+        const hoursExpr = `%{eif:floor(${totalSecondsExpr}/3600)-24*floor(${totalSecondsExpr}/86400):d:02}`;
+        const minutesExpr = `%{eif:floor(${totalSecondsExpr}/60)-60*floor(${totalSecondsExpr}/3600):d:02}`;
+        const secondsExpr = `%{eif:floor(${totalSecondsExpr})-60*floor(${totalSecondsExpr}/60):d:02}`;
+        const millisExpr = `%{eif:floor(1000*mod(${totalSecondsExpr},1)):d:03}`;
+
+        return {
+            hours: hoursExpr,
+            minutes: minutesExpr,
+            seconds: secondsExpr,
+            millis: millisExpr,
+            hms: `${hoursExpr}:${minutesExpr}:${secondsExpr}`
+        };
+    }
+
+    buildFrameCounterExpr(fps) {
+        const frameRate = Number.isFinite(fps) && fps > 0 ? fps : 25;
+        return `%{eif:mod(n,${frameRate}):d:02}`;
+    }
+
+    resolveClockLineY(baseExpr, lineIndex, totalLines, lineHeight, clockPosition) {
+        const baseWrapped = `(${baseExpr})`;
+
+        if (clockPosition.startsWith('center')) {
+            const centerOffset = (lineIndex - (totalLines - 1) / 2) * lineHeight;
+            if (Math.abs(centerOffset) < 1) {
+                return baseExpr;
+            }
+            const roundedOffset = Math.round(centerOffset);
+            const sign = roundedOffset >= 0 ? '+' : '-';
+            return `${baseWrapped}${sign}${Math.abs(roundedOffset)}`;
+        }
+
+        if (lineIndex === 0) {
+            return baseExpr;
+        }
+
+        const offset = lineIndex * lineHeight;
+        if (clockPosition.startsWith('top')) {
+            return `${baseWrapped}+${offset}`;
+        }
+        if (clockPosition.startsWith('bottom')) {
+            return `${baseWrapped}-${offset}`;
+        }
+
+        return baseExpr;
+    }
+
+    getLocalTimezoneInfo(referenceDate) {
+        const date = referenceDate instanceof Date ? referenceDate : new Date();
+        const offsetMinutesEast = -date.getTimezoneOffset();
+        const offsetSeconds = offsetMinutesEast * 60;
+        const resolvedZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+        let shortLabel = '';
+
+        try {
+            const parts = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(date);
+            const tzPart = parts.find(part => part.type === 'timeZoneName');
+            if (tzPart && tzPart.value) {
+                shortLabel = tzPart.value;
+            }
+        } catch (err) {
+            // Ignore failures and keep fallback label
+        }
+
+        const label = shortLabel && !resolvedZone.includes(shortLabel)
+            ? `${resolvedZone} (${shortLabel})`
+            : resolvedZone;
+
+        return {
+            label,
+            zone: resolvedZone,
+            shortLabel,
+            offsetMinutes: offsetMinutesEast,
+            offsetSeconds,
+            offsetLabel: this.formatTimezoneOffset(offsetMinutesEast)
+        };
+    }
+
+    formatTimezoneOffset(minutesEast) {
+        if (!Number.isFinite(minutesEast)) {
+            return '+00:00';
+        }
+
+        const sign = minutesEast >= 0 ? '+' : '-';
+        const absMinutes = Math.abs(Math.round(minutesEast));
+        const hours = String(Math.floor(absMinutes / 60)).padStart(2, '0');
+        const minutes = String(absMinutes % 60).padStart(2, '0');
+        return `${sign}${hours}:${minutes}`;
+    }
+
+    formatLocalDateYMD(date) {
+        const d = date instanceof Date ? date : new Date(date);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     }
 
     getFontDirective(fontFamily) {

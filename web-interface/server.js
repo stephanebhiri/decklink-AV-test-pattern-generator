@@ -2,11 +2,109 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const FFmpegBuilder = require('./ffmpeg-builder');
+const ffmpegBuilder = new FFmpegBuilder();
+
+const CLOCK_PIPELINE_LATENCY_MS = 200;
+const NTP_SERVERS = [
+    'time.cloudflare.com',
+    'time.google.com',
+    'time.nist.gov'
+];
+
+let currentNtpStatus = {
+    source: ffmpegBuilder.ntpSource,
+    offsetMs: ffmpegBuilder.ntpOffsetMs,
+    dispersionMs: ffmpegBuilder.ntpDispersionMs,
+    timestamp: ffmpegBuilder.ntpLastSync
+};
+
+function queryNtp(host) {
+    try {
+        const result = spawnSync('/usr/bin/sntp', [host], {
+            encoding: 'utf8',
+            timeout: 7000
+        });
+
+        if (result.error) {
+            throw result.error;
+        }
+
+        if (typeof result.status === 'number' && result.status !== 0) {
+            return null;
+        }
+
+        const output = `${result.stdout || ''}`.trim();
+        const lines = output.split('\n').filter(Boolean);
+        if (lines.length === 0) {
+            return null;
+        }
+
+        const dataLine = lines[lines.length - 1];
+        const offsetMatch = dataLine.match(/([+-]?\d+\.\d+)\s+\+\/\-/);
+        if (!offsetMatch) {
+            return null;
+        }
+
+        const dispersionMatch = dataLine.match(/\+\/\-\s+([0-9.]+)/);
+
+        const offsetSeconds = parseFloat(offsetMatch[1]);
+        const dispersionSeconds = dispersionMatch ? parseFloat(dispersionMatch[1]) : null;
+
+        if (!Number.isFinite(offsetSeconds)) {
+            return null;
+        }
+
+        return {
+            source: host,
+            offsetMs: offsetSeconds * 1000,
+            dispersionMs: Number.isFinite(dispersionSeconds) ? dispersionSeconds * 1000 : null,
+            timestamp: Date.now()
+        };
+    } catch (error) {
+        console.warn(`Failed to query NTP server ${host}:`, error.message || error);
+        return null;
+    }
+}
+
+function refreshClockSync() {
+    for (const host of NTP_SERVERS) {
+        const measurement = queryNtp(host);
+        if (measurement) {
+            currentNtpStatus = measurement;
+            ffmpegBuilder.setClockTimingInfo({
+                ntpOffsetMs: measurement.offsetMs,
+                ntpSource: measurement.source,
+                ntpDispersionMs: measurement.dispersionMs,
+                ntpTimestamp: measurement.timestamp
+            });
+            console.log(`Clock sync via ${measurement.source}: offset ${measurement.offsetMs.toFixed(2)}ms`);
+            return;
+        }
+    }
+
+    // Fallback to system clock if all NTP queries fail
+    currentNtpStatus = {
+        source: 'system clock',
+        offsetMs: 0,
+        dispersionMs: null,
+        timestamp: Date.now()
+    };
+
+    ffmpegBuilder.setClockTimingInfo({
+        ntpOffsetMs: 0,
+        ntpSource: currentNtpStatus.source,
+        ntpDispersionMs: null,
+        ntpTimestamp: currentNtpStatus.timestamp
+    });
+}
+
+refreshClockSync();
+setInterval(refreshClockSync, 15 * 60 * 1000);
 
 const app = express();
 const server = http.createServer(app);
@@ -39,7 +137,9 @@ const DEFAULT_CONFIG = {
     showConfigOverlay: false,
     configOverlayFontSize: null,
     configOverlayPosition: 'top-left',
-    flashOverlayOffset: 0
+    flashOverlayOffset: 0,
+    decklinkDevice: null,
+    clockLatencyMs: CLOCK_PIPELINE_LATENCY_MS
 };
 
 const DEFAULT_PRESETS = {
@@ -179,6 +279,27 @@ function sanitizeConfig(config = {}) {
         merged.configOverlayPosition = DEFAULT_CONFIG.configOverlayPosition;
     }
 
+    const latencyValue = Number(merged.clockLatencyMs);
+    if (Number.isFinite(latencyValue)) {
+        merged.clockLatencyMs = Math.max(0, Math.min(5000, Math.round(latencyValue)));
+    } else {
+        merged.clockLatencyMs = DEFAULT_CONFIG.clockLatencyMs;
+    }
+
+    const requestedDecklink = typeof merged.decklinkDevice === 'string'
+        ? merged.decklinkDevice.trim()
+        : '';
+
+    if (requestedDecklink.length === 0) {
+        merged.decklinkDevice = null;
+    } else {
+        try {
+            merged.decklinkDevice = ffmpegBuilder.resolveDecklinkTarget(requestedDecklink);
+        } catch (err) {
+            merged.decklinkDevice = null;
+        }
+    }
+
     return merged;
 }
 
@@ -296,7 +417,6 @@ if (Object.keys(savedPresets).length === 0) {
 let currentFFmpegProcess = null;
 let pendingRestart = null;
 let pendingCloseReason = null;
-const ffmpegBuilder = new FFmpegBuilder();
 let currentFFmpegConfig = null;
 let currentFFmpegStartedAt = null;
 let ffmpegLogBuffer = [];
@@ -324,6 +444,13 @@ function startFFmpegProcess(config, socket, options = {}) {
     try {
         const cleanConfig = sanitizeConfig(config);
         savedSettings = cleanConfig;
+        ffmpegBuilder.setClockTimingInfo({
+            latencyMs: cleanConfig.clockLatencyMs,
+            ntpOffsetMs: currentNtpStatus.offsetMs,
+            ntpSource: currentNtpStatus.source,
+            ntpDispersionMs: currentNtpStatus.dispersionMs,
+            ntpTimestamp: currentNtpStatus.timestamp
+        });
         const command = ffmpegBuilder.buildCommand(cleanConfig);
         console.log('FFmpeg command:', command.join(' '));
 
@@ -420,6 +547,10 @@ app.get('/api/video-formats', (req, res) => {
     res.json(ffmpegBuilder.getVideoFormats());
 });
 
+app.get('/api/decklink-sinks', (req, res) => {
+    res.json(ffmpegBuilder.getDecklinkDevices());
+});
+
 app.get('/api/logo-positions', (req, res) => {
     res.json(ffmpegBuilder.getLogoPositions());
 });
@@ -452,7 +583,8 @@ app.get('/api/status', (req, res) => {
         pid: pidList.length > 0 ? pidList[0] : null,
         processCount: pidList.length,
         startedAt: currentFFmpegStartedAt,
-        config: currentFFmpegConfig
+        config: currentFFmpegConfig,
+        clockSync: currentNtpStatus
     });
 });
 });
@@ -559,8 +691,9 @@ app.get('/api/uploaded-backgrounds', (req, res) => {
             return res.json([]);
         }
 
+        const allowedExtensions = new Set(['.png', '.jpg', '.jpeg', '.svg']);
         const files = fs.readdirSync(dir)
-            .filter(file => ['.png', '.jpg', '.jpeg'].includes(path.extname(file).toLowerCase()))
+            .filter(file => allowedExtensions.has(path.extname(file).toLowerCase()))
             .map(file => ({
                 filename: file,
                 path: `/uploads/backgrounds/${file}`
@@ -574,6 +707,13 @@ app.get('/api/uploaded-backgrounds', (req, res) => {
 
 app.post('/api/preview', (req, res) => {
     const config = sanitizeConfig(req.body);
+    ffmpegBuilder.setClockTimingInfo({
+        latencyMs: config.clockLatencyMs,
+        ntpOffsetMs: currentNtpStatus.offsetMs,
+        ntpSource: currentNtpStatus.source,
+        ntpDispersionMs: currentNtpStatus.dispersionMs,
+        ntpTimestamp: currentNtpStatus.timestamp
+    });
     const command = ffmpegBuilder.buildCommand(config);
     res.json({
         success: true,
