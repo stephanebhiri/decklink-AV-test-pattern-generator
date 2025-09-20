@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACTUA Broadcast Generator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ACTUA Broadcast Generator</h1>
+            <p>Professional SDI test signal generator</p>
+        </header>
+
+        <div class="actions">
+            <button id="previewBtn" class="btn btn-secondary">Preview Command</button>
+            <button id="webMonitorBtn" class="btn btn-info">📺 Web Monitor</button>
+            <button id="startBtn" class="btn btn-primary">Start Broadcast</button>
+            <button id="stopBtn" class="btn btn-danger" disabled>Stop</button>
+            <button id="killBtn" class="btn btn-warning">Force Kill FFmpeg</button>
+        </div>
+
+        <!-- Web Monitor Panel -->
+        <div id="webMonitorPanel" class="web-monitor-panel" style="display: none;">
+            <div class="monitor-header">
+                <h3>Web Monitor</h3>
+                <div class="monitor-controls">
+                    <div class="monitor-status">
+                        <span id="monitorStatus" class="status-indicator status-offline">● Offline</span>
+                    </div>
+                    <button id="startMonitorBtn" class="btn btn-success btn-sm">▶️ Start</button>
+                    <button id="stopMonitorBtn" class="btn btn-danger btn-sm" disabled>⏹️ Stop</button>
+                    <button id="closeMonitorBtn" class="btn btn-secondary btn-sm">✕ Close</button>
+                </div>
+            </div>
+            <div class="monitor-container">
+                <video id="monitorVideo" class="monitor-video" controls muted>
+                    Your browser does not support the video tag.
+                </video>
+                <div class="monitor-overlay">
+                    <div class="monitor-info">
+                        <span id="monitorResolution">Waiting for stream...</span>
+                        <span id="monitorBitrate">-- kbps</span>
+                        <span id="monitorLatency">-- ms</span>
+                    </div>
+                </div>
+                <div id="monitorError" class="monitor-error" style="display: none;">
+                    <div class="error-message">
+                        <h4>⚠️ Stream Error</h4>
+                        <p id="errorText">Unable to connect to stream</p>
+                        <button id="retryMonitorBtn" class="btn btn-primary btn-sm">Retry</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-grid">
+            <!-- Visuals Section -->
+            <section class="control-section">
+                <h3>Visuals</h3>
+                <div class="control-group">
+                    <label for="background">Background:</label>
+                    <select id="background"></select>
+                </div>
+                <div class="control-group" id="customBackgroundControls" style="display: none;">
+                    <label for="customBackgroundSelect">Custom background:</label>
+                    <div class="background-actions">
+                        <select id="customBackgroundSelect">
+                            <option value="">Select an uploaded background...</option>
+                        </select>
+                        <button type="button" id="uploadBgBtn" class="btn btn-secondary">📁 Upload Image</button>
+                        <input type="file" id="backgroundFile" accept=".png,.jpg,.jpeg,.svg" style="display: none;">
+                    </div>
+                    <div id="backgroundPreview" class="background-preview" style="display: none;"></div>
+                </div>
+                <div class="control-group">
+                    <label for="animation">Animation:</label>
+                    <select id="animation"></select>
+                </div>
+            </section>
+
+            <!-- Text Section -->
+            <section class="control-section">
+                <h3>Text</h3>
+                <div class="control-group">
+                    <label for="text">On-screen text:</label>
+                    <textarea id="text" rows="2" placeholder="ACTUA PARIS&#10;Optional second line">ACTUA PARIS</textarea>
+                </div>
+                <div class="control-group">
+                    <label for="textPosition">Text position:</label>
+                    <select id="textPosition">
+                        <option value="center">⊙ Center</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="fontSize">Font size:</label>
+                    <input type="range" id="fontSize" min="20" max="120" value="80">
+                    <span id="fontSizeValue">80px</span>
+                </div>
+                <div class="control-group">
+                    <label for="fontFamily">Font style:</label>
+                    <select id="fontFamily">
+                        <option value="sf_mono" selected>SF Mono (Default)</option>
+                        <option value="arial_bold">Arial Bold</option>
+                        <option value="arial_black">Arial Black</option>
+                        <option value="impact">Impact</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="textWeight">Text weight:</label>
+                    <select id="textWeight">
+                        <option value="normal" selected>Normal</option>
+                        <option value="semi">Semi Bold</option>
+                        <option value="heavy">Extra Bold</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="textColor">Text color:</label>
+                    <select id="textColor">
+                        <option value="white">White</option>
+                        <option value="black">Black</option>
+                        <option value="red">Red</option>
+                        <option value="yellow">Yellow</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="textBackground">Text background:</label>
+                    <select id="textBackground">
+                        <option value="none" selected>None</option>
+                        <option value="black_solid">Black (solid)</option>
+                        <option value="black_soft">Black (60%)</option>
+                        <option value="white_soft">White (60%)</option>
+                        <option value="yellow_soft">Yellow (60%)</option>
+                        <option value="blue_soft">Blue (60%)</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Logo Section -->
+            <section class="control-section">
+                <h3>Logo</h3>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showLogo" checked>
+                        Show logo
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label for="logoFile">Logo file:</label>
+                    <input type="file" id="logoFile" accept=".png" style="display: none;">
+                    <button id="uploadLogoBtn" class="btn btn-secondary">📁 Upload PNG</button>
+                    <select id="logoSelect">
+                        <option value="">Default ACTUA logo</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="logoPosition">Logo position:</label>
+                    <select id="logoPosition">
+                        <option value="top-right">↗ Top Right</option>
+                    </select>
+                </div>
+                <div id="logoPreview" class="logo-preview"></div>
+            </section>
+
+            <!-- Audio Section -->
+            <section class="control-section">
+                <h3>Audio</h3>
+                <div class="control-group">
+                    <label for="audioFreq">Tone frequency (Hz):</label>
+                    <div class="range-row">
+                        <input type="range" id="audioFreq" min="100" max="2000" value="1000" step="100">
+                        <span id="audioFreqValue">1000 Hz</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="audioLevel">Audio level:</label>
+                    <select id="audioLevel">
+                        <optgroup label="Broadcast alignment (VU ≈ dBFS − 20)">
+                            <option value="vu_-28" data-dbfs="-8">-28 VU (-8 dBFS)</option>
+                            <option value="vu_-24" data-dbfs="-4">-24 VU (-4 dBFS)</option>
+                            <option value="vu_-22" data-dbfs="-2">-22 VU (-2 dBFS)</option>
+                            <option value="vu_-20" data-dbfs="0" selected>-20 VU (0 dBFS)</option>
+                            <option value="vu_-18" data-dbfs="2">-18 VU (+2 dBFS)</option>
+                            <option value="vu_-16" data-dbfs="4">-16 VU (+4 dBFS)</option>
+                        </optgroup>
+                        <optgroup label="Digital reference (dBFS)">
+                            <option value="dbfs_-24" data-dbfs="-24">-24 dBFS (≈ -44 VU)</option>
+                            <option value="dbfs_-18" data-dbfs="-18">-18 dBFS (≈ -38 VU)</option>
+                            <option value="dbfs_-12" data-dbfs="-12">-12 dBFS (≈ -32 VU)</option>
+                            <option value="dbfs_-9" data-dbfs="-9">-9 dBFS (≈ -29 VU)</option>
+                            <option value="dbfs_-6" data-dbfs="-6">-6 dBFS (≈ -26 VU)</option>
+                            <option value="dbfs_-3" data-dbfs="-3">-3 dBFS (≈ -23 VU)</option>
+                            <option value="dbfs_0" data-dbfs="0">0 dBFS (+20 VU)</option>
+                            <option value="dbfs_3" data-dbfs="3">+3 dBFS (+23 VU)</option>
+                            <option value="dbfs_6" data-dbfs="6">+6 dBFS (+26 VU)</option>
+                            <option value="dbfs_9" data-dbfs="9">+9 dBFS (+29 VU)</option>
+                            <option value="dbfs_12" data-dbfs="12">+12 dBFS (+32 VU)</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Active channels:</label>
+                    <div class="channel-toggle-row" id="audioChannelToggles"></div>
+                    <div class="control-hint">Clear a channel to mute it; unused channels stay silent.</div>
+                </div>
+                <div class="control-group">
+                    <label>Quick presets:</label>
+                    <div class="tone-preset-row">
+                        <button type="button" class="tone-preset-btn" data-audio-preset="400">400 Hz</button>
+                        <button type="button" class="tone-preset-btn" data-audio-preset="1000">1000 Hz</button>
+                        <button type="button" class="tone-preset-btn" data-audio-preset="2000">2000 Hz</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="flashOverlayOffset">1-frame flash vertical offset:</label>
+                    <div class="range-row">
+                        <input type="range" id="flashOverlayOffset" min="-100" max="100" value="0">
+                        <span id="flashOverlayOffsetValue">0%</span>
+                    </div>
+                    <div class="control-hint">-100% moves to top, +100% to bottom.</div>
+                </div>
+            </section>
+
+            <!-- Video Format Section -->
+            <section class="control-section">
+                <h3>Video Format</h3>
+                <div class="control-group">
+                    <label for="videoFormat">Output format:</label>
+                    <select id="videoFormat">
+                        <option value="1080i50">1080i50 (1920x1080 interlaced)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="decklinkDevice">DeckLink output:</label>
+                    <select id="decklinkDevice">
+                        <option value="">Auto-select (first detected)</option>
+                    </select>
+                    <div class="control-hint">Select the card/port to feed; leave on auto to use the first available sink.</div>
+                </div>
+            </section>
+
+            <!-- Overlay Section -->
+            <section class="control-section">
+                <h3>Overlay</h3>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showConfigOverlay">
+                        Show settings overlay
+                    </label>
+                    <div class="control-hint">Displays active video/audio parameters on-screen.</div>
+                </div>
+                <div class="control-group">
+                    <label for="overlayFontSize">Overlay font size:</label>
+                    <div class="range-row">
+                        <input type="range" id="overlayFontSize" min="18" max="120" value="36">
+                        <span id="overlayFontSizeValue">36px</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="overlayPosition">Overlay position:</label>
+                    <select id="overlayPosition"></select>
+                </div>
+            </section>
+
+            <!-- Clock Section -->
+            <section class="control-section">
+                <h3>Clock</h3>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showClock">
+                        Show GMT clock + frame + ms
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label for="clockLatencyMs">Clock SDI lead (ms):</label>
+                    <input type="number" id="clockLatencyMs" min="0" max="2000" step="10" value="200">
+                    <div class="control-hint">Shift the on-air clock forward to match measured pipeline delay.</div>
+                </div>
+                <div class="control-group">
+                    <label for="clockPosition">Clock position:</label>
+                    <div class="position-grid" id="clockPositions">
+                        <!-- Position buttons will be populated by JavaScript -->
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Presets Section -->
+        <section class="control-section">
+            <h3>Presets</h3>
+            <div class="control-group">
+                <div class="preset-controls">
+                    <input type="text" id="presetName" placeholder="Preset name..." style="flex: 1; margin-right: 10px;">
+                    <button id="savePresetBtn" class="btn btn-info">Save</button>
+                </div>
+                <div class="preset-list">
+                    <select id="presetSelect" style="flex: 1; margin-right: 10px;">
+                        <option value="">Select a preset...</option>
+                    </select>
+                    <button id="loadPresetBtn" class="btn btn-info">Load</button>
+                    <button id="deletePresetBtn" class="btn btn-warning">Delete</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Status Panel -->
+        <div id="status" class="status-panel">
+            <h3>System Status</h3>
+            <div id="statusText">Ready</div>
+            <div id="commandPreview" class="command-preview"></div>
+        </div>
+
+        <!-- Log Panel -->
+        <div id="logPanel" class="log-panel">
+            <h3>FFmpeg Logs</h3>
+            <div id="logOutput"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="web-monitor-client.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
