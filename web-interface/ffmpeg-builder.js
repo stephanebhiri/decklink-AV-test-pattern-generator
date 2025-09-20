@@ -5,7 +5,10 @@ const { spawnSync } = require('child_process');
 
 class FFmpegBuilder {
     constructor() {
-        this.ffmpegPath = path.join(process.env.HOME, 'ffmpeg-4.4.4', 'build', 'bin', 'ffmpeg');
+        // Allow FFmpeg path to be configured via environment variable
+        this.ffmpegPath = process.env.FFMPEG_PATH ||
+                         path.join(process.env.HOME, 'ffmpeg-4.4.4', 'build', 'bin', 'ffmpeg') ||
+                         'ffmpeg'; // Fallback to system PATH
         this.picturesPath = path.join(process.env.HOME, 'Pictures');
         this.logoPath = path.join(this.picturesPath, 'PNG-actua', 'actua.png');
         this.barsPath = path.join(this.picturesPath, 'bars.png');

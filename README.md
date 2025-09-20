@@ -111,27 +111,155 @@ This is a professional test pattern generator built specifically for Blackmagic 
 
 ## Installation & Setup
 
-### Prerequisites
-```bash
-# Install Node.js dependencies
-cd web-interface
-npm install
+### Step 1: Install Blackmagic Desktop Video
+1. Download **Blackmagic Desktop Video** from [Blackmagic Design website](https://www.blackmagicdesign.com/support)
+2. Install the drivers and restart your system
+3. Connect your DeckLink device
+4. Configure device via **Blackmagic Desktop Video Setup**
 
-# Ensure FFmpeg with DeckLink support is available
+### Step 2: Install/Compile FFmpeg with DeckLink Support
+
+#### Option A: Check if FFmpeg with DeckLink is already available
+```bash
+# Test if your system FFmpeg has DeckLink support
+ffmpeg -f decklink -list_devices true -i dummy 2>&1 | grep -i decklink
+```
+If this shows your DeckLink devices, you can skip to Step 3.
+
+#### Option B: Install Pre-compiled FFmpeg (macOS)
+```bash
+# Using Homebrew (easiest method)
+brew install ffmpeg --with-decklink
+
+# Or try a pre-built version with DeckLink support
+# Check: https://evermeet.cx/ffmpeg/ for macOS builds
+```
+
+#### Option C: Compile FFmpeg with DeckLink Support (All Platforms)
+
+**Prerequisites:**
+```bash
+# macOS
+brew install nasm pkg-config
+
+# Ubuntu/Debian
+sudo apt update
+sudo apt install build-essential nasm pkg-config
+
+# CentOS/RHEL
+sudo yum groupinstall "Development Tools"
+sudo yum install nasm pkgconfig
+```
+
+**Download Blackmagic DeckLink SDK:**
+1. Visit [Blackmagic Developer page](https://www.blackmagicdesign.com/developer)
+2. Download "Blackmagic DeckLink SDK"
+3. Extract to `/usr/local/include/DeckLinkAPI` (or note the path)
+
+**Compile FFmpeg:**
+```bash
+# Download FFmpeg source
+wget https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz
+tar -xf ffmpeg-6.0.tar.xz
+cd ffmpeg-6.0
+
+# Configure with DeckLink support
+./configure \
+  --enable-decklink \
+  --extra-cflags="-I/usr/local/include/DeckLinkAPI" \
+  --extra-ldflags="-framework CoreFoundation" \
+  --enable-nonfree
+
+# Compile (this will take 15-30 minutes)
+make -j$(nproc)
+
+# Install
+sudo make install
+
+# Verify DeckLink support
 ffmpeg -f decklink -list_devices true -i dummy
 ```
 
-### Blackmagic Setup
-1. Install **Blackmagic Desktop Video** drivers
-2. Connect DeckLink device
-3. Configure device via **Blackmagic Desktop Video Setup**
-4. Verify device detection in FFmpeg
+**Alternative: Docker approach (Linux):**
+```dockerfile
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y \
+    build-essential nasm pkg-config wget
+# ... (add DeckLink SDK and FFmpeg compilation steps)
+```
 
-### Start Application
+### Step 3: Install Node.js Dependencies
+```bash
+cd web-interface
+npm install
+```
+
+### Step 4: Verify DeckLink Detection
+```bash
+# List available DeckLink devices
+ffmpeg -f decklink -list_devices true -i dummy
+
+# Should show something like:
+# [decklink @ 0x...] Blackmagic DeckLink devices:
+# [decklink @ 0x...] 	'DeckLink Mini Monitor'
+```
+
+### Step 5: Configure FFmpeg Path (if needed)
+If you compiled FFmpeg to a custom location, update the path in `web-interface/ffmpeg-builder.js`:
+
+```javascript
+// Line ~8 in ffmpeg-builder.js
+this.ffmpegPath = '/usr/local/bin/ffmpeg'; // Update this path
+```
+
+Or set via environment variable:
+```bash
+export FFMPEG_PATH=/path/to/your/ffmpeg
+```
+
+### Step 6: Start Application
 ```bash
 cd web-interface
 npm start
 # Access web interface at http://localhost:3000
+```
+
+### Troubleshooting FFmpeg + DeckLink
+
+#### Common Issues:
+1. **"Unknown input format: 'decklink'"**
+   - FFmpeg was compiled without DeckLink support
+   - Recompile with `--enable-decklink` flag
+
+2. **"No DeckLink devices found"**
+   - Check Blackmagic Desktop Video installation
+   - Verify device connection and power
+   - Run `lsusb` (Linux) or check System Information (macOS)
+
+3. **Permission denied accessing DeckLink**
+   ```bash
+   # Linux: Add user to video group
+   sudo usermod -a -G video $USER
+   # Then logout and login again
+   ```
+
+4. **Compilation errors with DeckLink SDK**
+   ```bash
+   # Ensure SDK headers are in the right location
+   find /usr -name "DeckLinkAPI.h" 2>/dev/null
+   # Adjust --extra-cflags path accordingly
+   ```
+
+#### Verify Installation:
+```bash
+# Check FFmpeg DeckLink support
+ffmpeg -formats | grep decklink
+
+# List codecs
+ffmpeg -codecs | grep -i decklink
+
+# Test with your specific device
+ffmpeg -f decklink -i "DeckLink Mini Monitor" -f null -
 ```
 
 ## Usage Examples
