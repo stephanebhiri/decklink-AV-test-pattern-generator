@@ -15,45 +15,11 @@
 
         <div class="actions">
             <button id="previewBtn" class="btn btn-secondary">Preview Command</button>
-            <button id="webMonitorBtn" class="btn btn-info">📺 Web Monitor</button>
             <button id="startBtn" class="btn btn-primary">Start Broadcast</button>
             <button id="stopBtn" class="btn btn-danger" disabled>Stop</button>
             <button id="killBtn" class="btn btn-warning">Force Kill FFmpeg</button>
         </div>
 
-        <!-- Web Monitor Panel -->
-        <div id="webMonitorPanel" class="web-monitor-panel" style="display: none;">
-            <div class="monitor-header">
-                <h3>Web Monitor</h3>
-                <div class="monitor-controls">
-                    <div class="monitor-status">
-                        <span id="monitorStatus" class="status-indicator status-offline">● Offline</span>
-                    </div>
-                    <button id="startMonitorBtn" class="btn btn-success btn-sm">▶️ Start</button>
-                    <button id="stopMonitorBtn" class="btn btn-danger btn-sm" disabled>⏹️ Stop</button>
-                    <button id="closeMonitorBtn" class="btn btn-secondary btn-sm">✕ Close</button>
-                </div>
-            </div>
-            <div class="monitor-container">
-                <video id="monitorVideo" class="monitor-video" controls muted>
-                    Your browser does not support the video tag.
-                </video>
-                <div class="monitor-overlay">
-                    <div class="monitor-info">
-                        <span id="monitorResolution">Waiting for stream...</span>
-                        <span id="monitorBitrate">-- kbps</span>
-                        <span id="monitorLatency">-- ms</span>
-                    </div>
-                </div>
-                <div id="monitorError" class="monitor-error" style="display: none;">
-                    <div class="error-message">
-                        <h4>⚠️ Stream Error</h4>
-                        <p id="errorText">Unable to connect to stream</p>
-                        <button id="retryMonitorBtn" class="btn btn-primary btn-sm">Retry</button>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <div class="controls-grid">
             <!-- Visuals Section -->
@@ -319,8 +285,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="web-monitor-client.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

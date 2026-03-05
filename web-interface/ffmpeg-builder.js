@@ -538,7 +538,6 @@ class FFmpegBuilder {
     }
 
     getAvailableBackgrounds() {
-        const fs = require('fs');
         const backgrounds = [
             { id: 'blue', name: 'Blue Background', type: 'color' },
             { id: 'black', name: 'Black Background', type: 'color' },
