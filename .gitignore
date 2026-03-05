@@ -41,3 +41,4 @@ out.mp4
 test_pattern.cl
 web-interface/test_*.mxf
 web-interface/test_*.mov
+.claude/
