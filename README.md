@@ -1,26 +1,38 @@
 # DeckLink AV Test Pattern Generator
 
-A web interface to send video test patterns and audio tones directly to a Blackmagic DeckLink output via SDI.
+Web interface to send video test patterns and audio tones to a Blackmagic DeckLink SDI output.
 
-Built for macOS with Blackmagic hardware. Uses a custom FFmpeg build with DeckLink support.
+Built for macOS. Requires a custom FFmpeg build with DeckLink support — see installation below.
+
+---
+
+![Test pattern output](docs/test-pattern-output.png)
+*Color bars with logo overlay, NTP-synced clock and settings overlay*
+
+![Web interface](docs/web-interface-main.png)
+*Main controls: background, text, logo, animations, video format, DeckLink device*
+
+![Audio section](docs/web-interface-audio.png)
+*8-channel audio: per-channel enable, ID cycle, 1-frame flash, 400Hz force*
 
 ---
 
 ## What it does
 
-- Outputs test patterns (color bars, SMPTE, gradients, etc.) to a DeckLink SDI card
-- Configurable audio tone (frequency, level, channel mapping)
-- On-screen text, logo overlay, clock with NTP sync
-- Multiple video formats: 1080i50, 1080i60, 1080p25/30, 720p50/60, 576i50
-- Web UI on `localhost:3000`, controllable from any browser on the local network
-- Auto-start on boot via `AUTO_START_BROADCAST` env var
+- Outputs test patterns to a DeckLink card via SDI
+- Video formats: 1080i50, 1080i60, 1080p25/30, 720p50/60, 576i50
+- Test sources: SMPTE bars, PAL bars, color bars, gradients, fractals, custom image upload
+- 8-channel audio with configurable tone (frequency + level), ID cycling, 1-frame flash
+- On-screen text, logo overlay (PNG upload), NTP-synchronized clock
+- Preset save/load, real-time FFmpeg log, web monitor (HLS preview)
+- Auto-start on server launch via env var
 
 ---
 
 ## Requirements
 
-- **macOS** (tested on Catalina and later)
-- **Blackmagic Desktop Video** drivers installed — [download here](https://www.blackmagicdesign.com/support/family/capture-and-playback)
+- **macOS** (Catalina or later)
+- **Blackmagic Desktop Video** drivers — [download here](https://www.blackmagicdesign.com/support/family/capture-and-playback)
 - **A DeckLink card** connected (UltraStudio, Mini Monitor, etc.)
 - **FFmpeg compiled with `--enable-decklink`** — see below
 - **Node.js >= 18**
@@ -29,9 +41,11 @@ Built for macOS with Blackmagic hardware. Uses a custom FFmpeg build with DeckLi
 
 ## FFmpeg
 
-The standard Homebrew FFmpeg does not include DeckLink support. You need a custom build.
+The Homebrew FFmpeg does not include DeckLink support. You need to compile it yourself.
 
-Compile with at minimum:
+**1. Download the Blackmagic DeckLink SDK** (free, same support page as the drivers above).
+
+**2. Compile FFmpeg:**
 
 ```bash
 ./configure \
@@ -45,9 +59,13 @@ Compile with at minimum:
 make -j$(sysctl -n hw.ncpu)
 ```
 
-The Blackmagic DeckLink SDK is available free from the [Blackmagic support page](https://www.blackmagicdesign.com/support/family/capture-and-playback) (same page as Desktop Video drivers, scroll to SDK).
+Compilation takes 15–30 minutes. Put the binary somewhere stable (e.g. `~/ffmpeg-4.4.4/build/bin/ffmpeg`) and set `FFMPEG_PATH` in `.env`.
 
-By default the app looks for the binary at `~/ffmpeg-4.4.4/build/bin/ffmpeg`. Override with `FFMPEG_PATH` in `.env`.
+**Verify DeckLink support:**
+```bash
+ffmpeg -hide_banner -sinks decklink
+# Should list your connected card
+```
 
 ---
 
@@ -59,16 +77,16 @@ cd decklink-AV-test-pattern-generator
 bash install.sh
 ```
 
-The script checks for Node.js, installs npm dependencies, verifies FFmpeg and drivers, and creates a `.env` template.
+The script checks Node.js, installs npm dependencies, verifies FFmpeg and drivers, and creates a `.env` template.
 
 ---
 
 ## Configuration
 
-Edit `web-interface/.env` (created by install.sh):
+Edit `web-interface/.env` (created by `install.sh`):
 
 ```env
-# Path to your FFmpeg binary (with DeckLink support)
+# Path to your FFmpeg binary (required, must have DeckLink support)
 FFMPEG_PATH=/path/to/ffmpeg
 
 # Path to your logo PNG (optional, transparent background recommended)
@@ -95,14 +113,20 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## Logo
+## Notes
 
-The interface supports a custom logo overlay. Supply a PNG with a transparent background. Set `LOGO_PATH` in `.env` or upload directly via the web UI.
+- Tested with UltraStudio Mini Monitor and UltraStudio 4K
+- NTP sync runs on startup and every 15 minutes (Cloudflare, Google, NIST)
+- Uploaded logos and backgrounds persist in `web-interface/uploads/`
+- FFmpeg logs stream live in the web UI
+- `SIGINT` and `SIGTERM` both cleanly stop the FFmpeg child process
 
 ---
 
-## Notes
+## Troubleshooting
 
-- NTP sync runs every 15 minutes to keep the on-screen clock accurate
-- Uploaded files (logos, custom backgrounds) go into `web-interface/uploads/` and persist across restarts
-- Tested with UltraStudio Mini Monitor and UltraStudio 4K
+**"Unknown input format: decklink"** — FFmpeg was compiled without `--enable-decklink`.
+
+**No DeckLink sinks detected** — Check that Desktop Video is installed, the card is connected, and run `ffmpeg -hide_banner -sinks decklink`.
+
+**Blank output / crash on start** — Check the FFmpeg log in the web UI. Usually a format mismatch with the card.
