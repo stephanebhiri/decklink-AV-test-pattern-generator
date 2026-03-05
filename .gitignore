@@ -1,20 +1,39 @@
 # OS / tooling artifacts
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # Local archives
 PLAYTOBMD-backup-*.zip
 
+# Node
+web-interface/node_modules/
+web-interface/npm-debug.log*
+.npm
+*.pid
+*.seed
+*.pid.lock
+
 # Generated uploads
 web-interface/uploads/*
 !web-interface/uploads/.gitignore
-
-# Node modules cache (already gitignored by install, but keep explicit)
-web-interface/node_modules/
+!web-interface/uploads/backgrounds/
 
 # Local config
 web-interface/.env
 
 # Logs
+*.log
 web-interface/server.log
 
 # Test files
