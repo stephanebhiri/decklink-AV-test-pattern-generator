@@ -9,6 +9,50 @@ const multer = require('multer');
 const FFmpegBuilder = require('./ffmpeg-builder');
 const ffmpegBuilder = new FFmpegBuilder();
 
+const automationSocket = {
+    emit(event, payload) {
+        if (event === 'broadcast-error') {
+            const message = payload && payload.message ? payload.message : payload;
+            console.error('[AutoStart] Broadcast error:', message);
+        } else if (event === 'ack-started') {
+            console.log('[AutoStart] Broadcast started successfully');
+        }
+    }
+};
+
+const AUTO_START_BROADCAST = (() => {
+    const value = (process.env.AUTO_START_BROADCAST || '').trim().toLowerCase();
+    if (!value) {
+        return false;
+    }
+    return ['1', 'true', 'yes', 'on', 'start'].includes(value);
+})();
+
+const AUTO_START_DELAY_MS = (() => {
+    const value = Number(process.env.AUTO_START_DELAY_MS);
+    if (Number.isFinite(value) && value >= 0) {
+        return value;
+    }
+    return 5000;
+})();
+
+function resolveSocket(socket) {
+    if (socket && typeof socket.emit === 'function') {
+        return socket;
+    }
+    return automationSocket;
+}
+
+function isFfmpegRunning() {
+    try {
+        const result = spawnSync('pgrep', ['-f', 'ffmpeg.*UltraStudio'], { encoding: 'utf8' });
+        return result.status === 0 && result.stdout.trim().length > 0;
+    } catch (error) {
+        console.warn('[AutoStart] Unable to check ffmpeg status:', error.message || error);
+        return false;
+    }
+}
+
 const CLOCK_PIPELINE_LATENCY_MS = 200;
 const NTP_SERVERS = [
     'time.cloudflare.com',
@@ -81,7 +125,7 @@ function refreshClockSync() {
                 ntpSource: measurement.source,
                 ntpDispersionMs: measurement.dispersionMs,
                 ntpTimestamp: measurement.timestamp
-            });
+            }, { freezeEpoch: true });
             console.log(`Clock sync via ${measurement.source}: offset ${measurement.offsetMs.toFixed(2)}ms`);
             return;
         }
@@ -100,7 +144,7 @@ function refreshClockSync() {
         ntpSource: currentNtpStatus.source,
         ntpDispersionMs: null,
         ntpTimestamp: currentNtpStatus.timestamp
-    });
+    }, { freezeEpoch: true });
 }
 
 refreshClockSync();
@@ -111,33 +155,33 @@ const server = http.createServer(app);
 const io = socketIo(server);
 
 const DEFAULT_CONFIG = {
-    background: 'blue',
+    background: 'bars',
     customBackground: null,
     text: 'ACTUA PARIS',
-    textPosition: 'center',
-    fontSize: 80,
-    fontFamily: 'sf_mono',
+    textPosition: 'top-right',
+    fontSize: 96,
+    fontFamily: 'arial_bold',
     textWeight: 'normal',
     textColor: 'white',
-    textBackground: 'none',
+    textBackground: 'black_solid',
     showLogo: true,
     logoFile: null,
-    logoPosition: 'top-right',
+    logoPosition: 'top-left',
     animation: null,
     audioFreq: 1000,
     audioLevelDb: 0,
-    audioChannels: 2,
-    audioChannelMap: [true, true, false, false, false, false, false, false],
-    audioChannelIdCycle: new Array(8).fill(false),
-    audioChannelFlash: new Array(8).fill(false),
-    audioChannelForce400: new Array(8).fill(false),
+    audioChannels: 8,
+    audioChannelMap: new Array(8).fill(true),
+    audioChannelIdCycle: [false, false, true, false, false, false, true, false],
+    audioChannelFlash: [false, true, false, false, false, true, false, false],
+    audioChannelForce400: [false, false, false, true, false, false, false, true],
     videoFormat: '1080i50',
     showClock: false,
     clockPosition: 'bottom-right',
-    showConfigOverlay: false,
-    configOverlayFontSize: null,
+    showConfigOverlay: true,
+    configOverlayFontSize: 36,
     configOverlayPosition: 'top-left',
-    flashOverlayOffset: 0,
+    flashOverlayOffset: 25,
     decklinkDevice: null,
     clockLatencyMs: CLOCK_PIPELINE_LATENCY_MS
 };
@@ -284,6 +328,21 @@ function sanitizeConfig(config = {}) {
         merged.clockLatencyMs = Math.max(0, Math.min(5000, Math.round(latencyValue)));
     } else {
         merged.clockLatencyMs = DEFAULT_CONFIG.clockLatencyMs;
+    }
+
+    // Prevent path traversal: only bare filenames are allowed
+    if (typeof merged.logoFile === 'string') {
+        const base = path.basename(merged.logoFile);
+        merged.logoFile = base === merged.logoFile ? base : null;
+    } else {
+        merged.logoFile = null;
+    }
+
+    if (typeof merged.customBackground === 'string') {
+        const base = path.basename(merged.customBackground);
+        merged.customBackground = base === merged.customBackground ? base : null;
+    } else {
+        merged.customBackground = null;
     }
 
     const requestedDecklink = typeof merged.decklinkDevice === 'string'
@@ -442,6 +501,7 @@ function appendToLog(message) {
 
 function startFFmpegProcess(config, socket, options = {}) {
     try {
+        const targetSocket = resolveSocket(socket);
         const cleanConfig = sanitizeConfig(config);
         savedSettings = cleanConfig;
         ffmpegBuilder.setClockTimingInfo({
@@ -497,11 +557,12 @@ function startFFmpegProcess(config, socket, options = {}) {
 
         currentFFmpegProcess.on('error', (error) => {
             console.error('FFmpeg error:', error);
-            socket.emit('broadcast-error', error.message);
+            targetSocket.emit('broadcast-error', error.message);
             currentFFmpegProcess = null;
             pendingCloseReason = null;
             pendingRestart = null;
             currentFFmpegStartedAt = null;
+            currentFFmpegConfig = null;
             appendToLog(`❌ FFmpeg error: ${error.message}\n`);
         });
 
@@ -513,13 +574,14 @@ function startFFmpegProcess(config, socket, options = {}) {
                     config: currentFFmpegConfig,
                     startedAt: currentFFmpegStartedAt
                 });
-                socket.emit('ack-started', { success: true, restarted: options.restarted === true });
+                targetSocket.emit('ack-started', { success: true, restarted: options.restarted === true });
             }
         }, 1000);
 
     } catch (error) {
         console.error('Error starting broadcast:', error);
-        socket.emit('broadcast-error', error.message);
+        const targetSocket = resolveSocket(socket);
+        targetSocket.emit('broadcast-error', error.message);
         currentFFmpegProcess = null;
         pendingCloseReason = null;
         pendingRestart = null;
@@ -564,8 +626,6 @@ app.get('/api/audio-channels', (req, res) => {
 });
 
 app.get('/api/status', (req, res) => {
-    const { spawn } = require('child_process');
-
     // Check for actual running FFmpeg processes
     const psProcess = spawn('pgrep', ['-f', 'ffmpeg.*UltraStudio']);
     let pids = '';
@@ -713,7 +773,7 @@ app.post('/api/preview', (req, res) => {
         ntpSource: currentNtpStatus.source,
         ntpDispersionMs: currentNtpStatus.dispersionMs,
         ntpTimestamp: currentNtpStatus.timestamp
-    });
+    }, { freezeEpoch: true });
     const command = ffmpegBuilder.buildCommand(config);
     res.json({
         success: true,
@@ -757,7 +817,6 @@ io.on('connection', (socket) => {
         } else {
             // No process reference, try to kill via pkill (for post-refresh scenarios)
             console.log('No process reference, attempting pkill');
-            const { spawn } = require('child_process');
             const killProcess = spawn('pkill', ['-f', 'ffmpeg.*UltraStudio']);
 
             killProcess.on('close', (code) => {
@@ -775,7 +834,6 @@ io.on('connection', (socket) => {
 
     socket.on('kill-ffmpeg', () => {
         console.log('Emergency kill FFmpeg requested');
-        const { spawn } = require('child_process');
 
         // Kill all FFmpeg processes
         const killProcess = spawn('pkill', ['-f', 'ffmpeg']);
@@ -812,7 +870,7 @@ io.on('connection', (socket) => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+function shutdown() {
     console.log('Shutting down server...');
     if (currentFFmpegProcess) {
         currentFFmpegProcess.kill('SIGTERM');
@@ -821,9 +879,32 @@ process.on('SIGINT', () => {
         console.log('Server closed');
         process.exit(0);
     });
-});
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`ACTUA Broadcast Generator running on http://localhost:${PORT}`);
+    if (AUTO_START_BROADCAST) {
+        console.log(`[AutoStart] Will attempt to start broadcast in ${AUTO_START_DELAY_MS}ms`);
+        setTimeout(() => {
+            if (currentFFmpegProcess && !currentFFmpegProcess.killed) {
+                console.log('[AutoStart] Broadcast already running (process tracked), skipping auto-start.');
+                return;
+            }
+
+            if (isFfmpegRunning()) {
+                console.log('[AutoStart] Existing ffmpeg process detected, skipping auto-start.');
+                return;
+            }
+
+            console.log('[AutoStart] Starting broadcast with saved settings');
+            try {
+                startFFmpegProcess(savedSettings, automationSocket);
+            } catch (error) {
+                console.error('[AutoStart] Failed to start broadcast:', error.message || error);
+            }
+        }, AUTO_START_DELAY_MS);
+    }
 });

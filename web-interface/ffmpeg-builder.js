@@ -18,6 +18,7 @@ class FFmpegBuilder {
         this.ntpDispersionMs = null;
         this.ntpSource = 'system clock';
         this.ntpLastSync = null;
+        this.clockEpochMs = null;
         this.fontOptions = {
             sf_mono: {
                 type: 'fontfile',
@@ -115,7 +116,83 @@ class FFmpegBuilder {
         } else if (background === 'blue' || background === 'black' || background === 'white') {
             cmd.push('-f', 'lavfi', '-i', `color=c=${background}:size=${resolution}:rate=${fps}`);
             inputs.push('0:v');
-        } else {
+        }
+        // FFmpeg source backgrounds
+        else if (background === 'allrgb') {
+            cmd.push('-f', 'lavfi', '-i', `allrgb=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'allyuv') {
+            cmd.push('-f', 'lavfi', '-i', `allyuv=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'color') {
+            cmd.push('-f', 'lavfi', '-i', `color=c=blue:size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'haldclutsrc') {
+            cmd.push('-f', 'lavfi', '-i', `haldclutsrc=level=6`);
+            inputs.push('0:v');
+        } else if (background === 'nullsrc') {
+            cmd.push('-f', 'lavfi', '-i', `nullsrc=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        }
+        // Animated backgrounds
+        else if (background === 'cellauto') {
+            cmd.push('-f', 'lavfi', '-i', `cellauto=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'gradients') {
+            cmd.push('-f', 'lavfi', '-i', `gradients=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'life') {
+            cmd.push('-f', 'lavfi', '-i', `life=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'mandelbrot') {
+            cmd.push('-f', 'lavfi', '-i', `mandelbrot=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'sierpinski') {
+            cmd.push('-f', 'lavfi', '-i', `sierpinski=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        }
+        // Test pattern backgrounds
+        else if (background === 'mptestsrc') {
+            cmd.push('-f', 'lavfi', '-i', `mptestsrc=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'pal75bars') {
+            cmd.push('-f', 'lavfi', '-i', `pal75bars=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'pal100bars') {
+            cmd.push('-f', 'lavfi', '-i', `pal100bars=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'rgbtestsrc') {
+            cmd.push('-f', 'lavfi', '-i', `rgbtestsrc=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'smptebars') {
+            cmd.push('-f', 'lavfi', '-i', `smptebars=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'smptehdbars') {
+            cmd.push('-f', 'lavfi', '-i', `smptehdbars=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'testsrc') {
+            cmd.push('-f', 'lavfi', '-i', `testsrc=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'testsrc2') {
+            cmd.push('-f', 'lavfi', '-i', `testsrc2=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'yuvtestsrc') {
+            cmd.push('-f', 'lavfi', '-i', `yuvtestsrc=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        }
+        // Special sources (may require additional parameters)
+        else if (background === 'coreimagesrc') {
+            cmd.push('-f', 'lavfi', '-i', `coreimagesrc=size=${resolution}:rate=${fps}:list_generators=1`);
+            inputs.push('0:v');
+        } else if (background === 'frei0r_src') {
+            cmd.push('-f', 'lavfi', '-i', `frei0r_src=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        } else if (background === 'openclsrc') {
+            cmd.push('-f', 'lavfi', '-i', `openclsrc=size=${resolution}:rate=${fps}`);
+            inputs.push('0:v');
+        }
+        // Default fallback
+        else {
             cmd.push('-f', 'lavfi', '-i', `color=c=blue:size=${resolution}:rate=${fps}`);
             inputs.push('0:v');
         }
@@ -138,7 +215,7 @@ class FFmpegBuilder {
         // Logo input
         let logoInputLabel = null;
         if (showLogo) {
-            const logoPath = logoFile ? path.join(process.env.HOME, 'PLAYTOBMD', 'web-interface', 'uploads', logoFile) : this.logoPath;
+            const logoPath = logoFile ? path.join(__dirname, 'uploads', logoFile) : this.logoPath;
             cmd.push('-i', logoPath);
             logoInputLabel = `[${nextInput}:v]`;
             nextInput++;
@@ -202,12 +279,10 @@ class FFmpegBuilder {
         let currentOutput = '[0:v]';
         let filterIndex = 0;
 
-        // Normalize frame rate before heavy filters so the clock sees each field for interlaced formats
-        if (videoFormat.includes('i')) {
-            filterComplex.push(`${currentOutput}fps=${fps}[fps${filterIndex}]`);
-            currentOutput = `[fps${filterIndex}]`;
-            filterIndex++;
-        }
+        // Normalize frame rate before heavy filters so the clock sees each frame/field consistently
+        filterComplex.push(`${currentOutput}fps=${fps}[fps${filterIndex}]`);
+        currentOutput = `[fps${filterIndex}]`;
+        filterIndex++;
 
         // Only scale the base layer when the requested format needs it (e.g. 720p, SD, or image backgrounds)
         const needsBaseScale = background === 'bars' || width !== 1920 || height !== 1080;
@@ -273,11 +348,11 @@ class FFmpegBuilder {
         }
         const flashOverlayFilters = [];
         if (flashFlags.some(Boolean)) {
-            const frameDuration = fps > 0 ? (1 / fps) : 0.04;
-            const frameExpr = frameDuration.toFixed(6);
-            const flashLeadEnable = `lt(mod(t\,2)\,${frameExpr})`;
-            const flashTailWindowEnd = (1 + frameDuration).toFixed(6);
-            const flashTailEnable = `between(mod(t\,2)\,1\,${flashTailWindowEnd})`;
+            // Flash vidéo 1-frame, alternés sans chevauchement
+            // Cycle 2 s @ fps : frame n%framesPer2s == 0 (1 kHz) puis n%framesPer2s == fps (400 Hz)
+            const framesPer2s = Math.max(1, Math.round(fps * 2));
+            const flashLeadEnable = `eq(mod(n\,${framesPer2s})\,0)`;      // t = 0 s
+            const flashTailEnable = `eq(mod(n\,${framesPer2s})\,${fps})`; // t = +1 s
             const flashBoxWidth = 'iw*0.15';
             const flashBoxHeight = 'ih*0.15';
             const flashTextSize = Math.max(32, Math.round(height * 0.08));
@@ -301,11 +376,12 @@ class FFmpegBuilder {
             const frameRate = Math.max(1, fps);
             const horizontalSpeed = maxX > 0 ? (8 * frameRate).toFixed(2) : '0';
             const verticalSpeed = maxY > 0 ? (6 * frameRate).toFixed(2) : '0';
+            const frameCounterExpr = `(n/${frameRate})`;
             const horizontalExpr = maxX > 0
-                ? `abs(mod(t*${horizontalSpeed},${(maxX * 2).toFixed(2)})-${maxX})`
+                ? `abs(mod(${frameCounterExpr}*${horizontalSpeed},${(maxX * 2).toFixed(2)})-${maxX})`
                 : '0';
             const verticalExpr = maxY > 0
-                ? `abs(mod(t*${verticalSpeed},${(maxY * 2).toFixed(2)})-${maxY})`
+                ? `abs(mod(${frameCounterExpr}*${verticalSpeed},${(maxY * 2).toFixed(2)})-${maxY})`
                 : '0';
             const squareOverlayLabel = `[anim${filterIndex}]`;
             filterComplex.push(`${currentOutput}${animationInputLabel}overlay=x='${horizontalExpr}':y='${verticalExpr}'${squareOverlayLabel}`);
@@ -324,7 +400,9 @@ class FFmpegBuilder {
             const pulseLabel = `[anim${filterIndex}]`;
             const pulseSpeed = (0.45 * width).toFixed(2);
             const pulseWidth = Math.max(4, Math.round(width * 0.012));
-            filterComplex.push(`${stairBaseLabel}drawbox=x='mod(t*${pulseSpeed},${width})':y=0:w=${pulseWidth}:h=${height}:color=white@0.75:t=fill${pulseLabel}`);
+            // Calage frame-accurate du pulse (remplace t par n/fps)
+            const frameCounterExpr = `(n/${fps})`;
+            filterComplex.push(`${stairBaseLabel}drawbox=x='mod(${frameCounterExpr}*${pulseSpeed},${width})':y=0:w=${pulseWidth}:h=${height}:color=white@0.75:t=fill${pulseLabel}`);
             filterIndex++;
 
             const overlayLabel = `[anim${filterIndex}]`;
@@ -399,9 +477,14 @@ class FFmpegBuilder {
             });
         }
 
+        // Preroll vidéo (~300 ms) pour remplir les buffers avant DeckLink
+        filterComplex.push(`${currentOutput}setpts=PTS+0.3/TB[preroll${filterIndex}]`);
+        currentOutput = `[preroll${filterIndex}]`;
+        filterIndex++;
+
         // For interlaced formats, add proper interlacing filters
         if (videoFormat.includes('i')) {
-            // Add fps=field_rate,setsar=1/1,tinterlace=mode=interleave_top,setfield=tff for optimal interlacing
+            // 50p/60p -> 25i/30i, TFF, entrelacement en fin de graphe
             filterComplex.push(`${currentOutput}fps=${fps},setsar=1/1,tinterlace=mode=interleave_top,setfield=tff[v]`);
         } else {
             // Rename final output to [v]
@@ -430,9 +513,12 @@ class FFmpegBuilder {
 
         cmd.push('-map', `${audioInputIndex}:a`);
 
+        // Audio : preroll + lissage + volume
         const audioVolume = this.resolveAudioVolume(audioLevelDb);
         if (audioVolume) {
-            cmd.push('-af', `volume=${audioVolume}`);
+            cmd.push('-af', `adelay=300:all=1,aresample=async=1,${`volume=${audioVolume}`}`);
+        } else {
+            cmd.push('-af', `adelay=300:all=1,aresample=async=1`);
         }
 
         // Common audio output settings
@@ -441,6 +527,8 @@ class FFmpegBuilder {
         // Output settings based on video format (append DeckLink options including preroll)
         const formatSettings = [...this.getVideoFormatSettings(videoFormat, decklinkDevice)];
         const targetDevice = formatSettings.pop();
+        // Sortie vidéo : cadence fixe
+        cmd.push('-vsync', '1');
         cmd.push(...formatSettings, '-audio_depth', '16', '-channels', decklinkAudioChannels.toString(), targetDevice);
 
         return cmd;
@@ -453,7 +541,29 @@ class FFmpegBuilder {
             { id: 'white', name: 'White Background', type: 'color' },
             { id: 'bars', name: 'Color Bars', type: 'image' },
             { id: 'resolution_test', name: 'Resolution Test Chart', type: 'image' },
-            { id: 'custom', name: 'Custom Background', type: 'upload' }
+            { id: 'custom', name: 'Custom Background', type: 'upload' },
+            { id: 'allrgb', name: 'All RGB Colors', type: 'source' },
+            { id: 'allyuv', name: 'All YUV Colors', type: 'source' },
+            { id: 'cellauto', name: 'Cellular Automaton', type: 'animation' },
+            { id: 'color', name: 'Solid Color', type: 'source' },
+            { id: 'coreimagesrc', name: 'CoreImage Generators', type: 'source' },
+            { id: 'frei0r_src', name: 'Frei0r Video Sources', type: 'source' },
+            { id: 'gradients', name: 'Gradient Animation', type: 'animation' },
+            { id: 'haldclutsrc', name: 'Hald CLUT Identity', type: 'source' },
+            { id: 'life', name: 'Game of Life', type: 'animation' },
+            { id: 'mandelbrot', name: 'Mandelbrot Fractal', type: 'animation' },
+            { id: 'mptestsrc', name: 'Multi-Pattern Test', type: 'test' },
+            { id: 'nullsrc', name: 'Empty/Black Source', type: 'source' },
+            { id: 'openclsrc', name: 'OpenCL Generators', type: 'source' },
+            { id: 'pal75bars', name: 'PAL 75% Bars', type: 'test' },
+            { id: 'pal100bars', name: 'PAL 100% Bars', type: 'test' },
+            { id: 'rgbtestsrc', name: 'RGB Test Pattern', type: 'test' },
+            { id: 'sierpinski', name: 'Sierpinski Fractal', type: 'animation' },
+            { id: 'smptebars', name: 'SMPTE SD Bars', type: 'test' },
+            { id: 'smptehdbars', name: 'SMPTE HD Bars', type: 'test' },
+            { id: 'testsrc', name: 'Classic Test Pattern', type: 'test' },
+            { id: 'testsrc2', name: 'Modern Test Pattern', type: 'test' },
+            { id: 'yuvtestsrc', name: 'YUV Test Pattern', type: 'test' }
         ];
     }
 
@@ -693,12 +803,18 @@ class FFmpegBuilder {
     }
 
     getFlashGateExpressions(fps) {
-        const frameDuration = fps > 0 ? (1 / fps) : 0.04;
-        const frameExpr = frameDuration.toFixed(6);
-        const flashGain = Math.pow(10, 12 / 20).toFixed(6);
-        const flashLeadGate = `if(lt(mod(t\\,2)\\,${frameExpr})\\,${flashGain}\\,0)`;
-        const flashTailEnd = (1 + frameDuration).toFixed(6);
-        const flashTailGate = `if(between(mod(t\\,2)\\,1\\,${flashTailEnd})\\,${flashGain}\\,0)`;
+        // Gates audio "1-frame" sample-accurate @48 kHz (pile 1 frame vidéo)
+        // Cycle 2 s : ON 960 samples (à 50 fps) à 0 s (1 kHz) puis à +1 s (400 Hz)
+        const sr = 48000;
+        const spf = Math.max(1, Math.round(sr / Math.max(1, fps))); // samples per frame
+        const period = sr * 2; // 2 seconds
+        const leadStart = 0,          leadEnd = spf - 1;          // [0 .. spf-1]
+        const tailStart = sr,         tailEnd = sr + spf - 1;     // [sr .. sr+spf-1]
+        const flashGain = Math.pow(10, 12 / 20).toFixed(6); // +12 dB
+        // nSamples = floor(t*sr); g1 ON sur début de cycle, g2 ON à +1 s
+        const sampleModulo = `mod(floor(t*${sr})\\,${period})`;
+        const flashLeadGate = `if(between(${sampleModulo}\\,${leadStart}\\,${leadEnd})\\,${flashGain}\\,0)`;
+        const flashTailGate = `if(between(${sampleModulo}\\,${tailStart}\\,${tailEnd})\\,${flashGain}\\,0)`;
         return { flashLeadGate, flashTailGate };
     }
 
@@ -954,7 +1070,9 @@ class FFmpegBuilder {
             .replace(/:/g, '\\:');
     }
 
-    setClockTimingInfo({ latencyMs, ntpOffsetMs, ntpSource, ntpDispersionMs, ntpTimestamp } = {}) {
+    setClockTimingInfo({ latencyMs, ntpOffsetMs, ntpSource, ntpDispersionMs, ntpTimestamp } = {}, options = {}) {
+        const { freezeEpoch = false, epochMs = null } = options || {};
+
         if (Number.isFinite(latencyMs) && latencyMs >= 0) {
             this.clockLatencyMs = latencyMs;
         }
@@ -978,10 +1096,18 @@ class FFmpegBuilder {
         } else if (ntpTimestamp === null) {
             this.ntpLastSync = null;
         }
+
+        if (Number.isFinite(epochMs)) {
+            this.clockEpochMs = epochMs;
+        } else if (!freezeEpoch || !Number.isFinite(this.clockEpochMs)) {
+            this.clockEpochMs = Date.now();
+        }
     }
 
     computeClockTimingData({ fps, latencyMs }) {
-        const nowMs = Date.now();
+        const baseMs = Number.isFinite(this.clockEpochMs)
+            ? this.clockEpochMs
+            : Date.now();
         const latencyValue = Number.isFinite(latencyMs)
             ? latencyMs
             : Number.isFinite(this.clockLatencyMs)
@@ -989,12 +1115,12 @@ class FFmpegBuilder {
                 : 0;
         const ntpOffsetMs = Number.isFinite(this.ntpOffsetMs) ? this.ntpOffsetMs : 0;
         const totalOffsetMs = latencyValue + ntpOffsetMs;
-        const baseSeconds = nowMs / 1000;
+        const baseSeconds = baseMs / 1000;
         const baseSecondsExpr = `${baseSeconds.toFixed(6)}+t`;
         const totalOffsetSeconds = totalOffsetMs / 1000;
         const utcSecondsExpr = `(${baseSecondsExpr}+${totalOffsetSeconds.toFixed(6)})`;
 
-        const referenceUtcDate = new Date(nowMs + totalOffsetMs);
+        const referenceUtcDate = new Date(baseMs + totalOffsetMs);
         const utcDate = referenceUtcDate.toISOString().split('T')[0];
 
         const localInfo = this.getLocalTimezoneInfo(referenceUtcDate);
@@ -1024,7 +1150,8 @@ class FFmpegBuilder {
             syncLine: infoLine,
             latencyMs: latencyValue,
             ntpOffsetMs,
-            totalOffsetMs
+            totalOffsetMs,
+            epochMs: baseMs
         };
     }
 
