@@ -13,8 +13,21 @@ Thumbs.db
 *.swp
 *.swo
 
-# Local archives
+# Local archives and binaries
 PLAYTOBMD-backup-*.zip
+ffmpeg
+ffmpeg-mac
+ffmpeg-decklink.zip
+evermeet.html
+broadcast_generator_plan.md
+
+# Old test scripts
+animated_square_test.sh
+simple_square.sh
+moving_bar.sh
+square_animated.sh
+square_optimized.sh
+setup_blackmagic_colorbar.sh
 
 # Node
 web-interface/node_modules/

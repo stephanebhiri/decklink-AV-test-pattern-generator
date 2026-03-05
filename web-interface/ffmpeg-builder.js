@@ -12,7 +12,7 @@ class FFmpegBuilder {
         this.logoPath = process.env.LOGO_PATH
             || path.join(process.env.HOME, 'Pictures', 'PNG-actua', 'actua.png');
         this.barsPath = path.join(ASSETS_DIR, 'bars.png');
-        this.resolutionTestPath = path.join(ASSETS_DIR, 'resolution_test.png');
+        this.resolutionTestPath = null; // optional asset, not included by default
         this.fontPath = '/System/Library/Fonts/SFNSMono.ttf';
         this.cachedDecklinkSinks = null;
         this.defaultDecklinkName = 'UltraStudio Mini Monitor';
@@ -109,7 +109,7 @@ class FFmpegBuilder {
         if (background === 'bars') {
             cmd.push('-loop', '1', '-i', this.barsPath);
             inputs.push('0:v');
-        } else if (background === 'resolution_test') {
+        } else if (background === 'resolution_test' && this.resolutionTestPath) {
             cmd.push('-loop', '1', '-i', this.resolutionTestPath);
             inputs.push('0:v');
         } else if (background === 'custom' && customBackground) {
@@ -538,12 +538,12 @@ class FFmpegBuilder {
     }
 
     getAvailableBackgrounds() {
-        return [
+        const fs = require('fs');
+        const backgrounds = [
             { id: 'blue', name: 'Blue Background', type: 'color' },
             { id: 'black', name: 'Black Background', type: 'color' },
             { id: 'white', name: 'White Background', type: 'color' },
             { id: 'bars', name: 'Color Bars', type: 'image' },
-            { id: 'resolution_test', name: 'Resolution Test Chart', type: 'image' },
             { id: 'custom', name: 'Custom Background', type: 'upload' },
             { id: 'allrgb', name: 'All RGB Colors', type: 'source' },
             { id: 'allyuv', name: 'All YUV Colors', type: 'source' },
@@ -568,6 +568,14 @@ class FFmpegBuilder {
             { id: 'testsrc2', name: 'Modern Test Pattern', type: 'test' },
             { id: 'yuvtestsrc', name: 'YUV Test Pattern', type: 'test' }
         ];
+
+        // Add resolution_test only if the asset file exists
+        const resTestPath = path.join(ASSETS_DIR, 'resolution_test.png');
+        if (fs.existsSync(resTestPath)) {
+            backgrounds.splice(4, 0, { id: 'resolution_test', name: 'Resolution Test Chart', type: 'image' });
+        }
+
+        return backgrounds;
     }
 
     getAvailableAnimations() {
