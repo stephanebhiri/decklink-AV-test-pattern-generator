@@ -3,13 +3,16 @@ const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 
+const ASSETS_DIR = path.join(__dirname, '..', 'assets');
+
 class FFmpegBuilder {
     constructor() {
-        this.ffmpegPath = path.join(process.env.HOME, 'ffmpeg-4.4.4', 'build', 'bin', 'ffmpeg');
-        this.picturesPath = path.join(process.env.HOME, 'Pictures');
-        this.logoPath = path.join(this.picturesPath, 'PNG-actua', 'actua.png');
-        this.barsPath = path.join(this.picturesPath, 'bars.png');
-        this.resolutionTestPath = path.join(this.picturesPath, 'resolution_test.png');
+        this.ffmpegPath = process.env.FFMPEG_PATH
+            || path.join(process.env.HOME, 'ffmpeg-4.4.4', 'build', 'bin', 'ffmpeg');
+        this.logoPath = process.env.LOGO_PATH
+            || path.join(process.env.HOME, 'Pictures', 'PNG-actua', 'actua.png');
+        this.barsPath = path.join(ASSETS_DIR, 'bars.png');
+        this.resolutionTestPath = path.join(ASSETS_DIR, 'resolution_test.png');
         this.fontPath = '/System/Library/Fonts/SFNSMono.ttf';
         this.cachedDecklinkSinks = null;
         this.defaultDecklinkName = 'UltraStudio Mini Monitor';

@@ -10,3 +10,15 @@ web-interface/uploads/*
 
 # Node modules cache (already gitignored by install, but keep explicit)
 web-interface/node_modules/
+
+# Local config
+web-interface/.env
+
+# Logs
+web-interface/server.log
+
+# Test files
+out.mp4
+test_pattern.cl
+web-interface/test_*.mxf
+web-interface/test_*.mov
